@@ -110,7 +110,7 @@ async def start(update: Update, context: CallbackContext) -> None:
     else:
         # Запрашиваем имя, если оно еще не введено
         await update.message.reply_text("Привет! Пожалуйста, введите ваше имя:")
-        user_state[user.id] = "waiting_for_name"
+        user_state[user_id] = "waiting_for_name"
 
 # Обработчик нажатий на кнопки главного меню
 async def main_menu_buttons(update: Update, context: CallbackContext) -> None:
@@ -255,7 +255,7 @@ async def create_queue_location(update: Update, context: CallbackContext) -> int
         return ConversationHandler.END
 
     elif query.data == "location_custom":
-        await query.edit_message_text("Пожалуйста, отправьте геолокацию для очереди:")
+        await update.message.reply_text("Пожалуйста, отправьте геолокацию для очереди:")
         return CHOOSE_LOCATION
 
 async def create_queue_location_custom(update: Update, context: CallbackContext) -> int:
@@ -295,7 +295,7 @@ async def create_queue_final(update: Update, context: CallbackContext) -> None:
     await update.effective_message.reply_text(f"Очередь '{name}' создана и будет доступна с {start_time.strftime('%d.%m.%y %H:%M')}.")
     
     # Автоматическое удаление очереди через 5 часов
-    #context.job_queue.run_once(delete_queue_job, 5 * 3600, name)  # 5 hours in seconds
+    context.job_queue.run_once(delete_queue_job, 5 * 3600, name)  # 5 hours in seconds
 
 # Функция для автоматического удаления очереди
 async def delete_queue_job(context: CallbackContext) -> None:
@@ -648,9 +648,19 @@ async def show_queues(update: Update, context: CallbackContext) -> None:
 async def get_all_queues() -> list[dict]:
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT queue_name FROM queues")
+        cursor.execute("SELECT queue_name, start_time FROM queues")
         results = cursor.fetchall()
-        return [{"queue_name": row[0]} for row in results]
+        
+        #Конвертируем в объекты datetime
+        converted_results = []
+        for row in results:
+            start_time_str = row[1]
+            start_time = datetime.fromisoformat(start_time_str) if start_time_str else None #Если время не найдено - ставим None
+
+            converted_results.append({"queue_name": row[0], "start_time":start_time})
+        
+        return converted_results
+    
     except sqlite3.Error as e:
         logger.error(f"Ошибка при получении списка очередей из базы данных: {e}")
         return []
@@ -669,13 +679,21 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
     if is_in_queue:
        await query.edit_message_text("Вы уже записаны в эту очередь.")
        return
-
-    #Получаем координаты очереди из базы данных
+    
+    #2. Получаем очередь и время из базы данных
     queue = await get_queue(queue_name)
-
     if not queue:
         await update.effective_message.reply_text("Ошибка: очередь не найдена.")
         return
+
+    #3. Проверяем наступило ли время для записи
+    queue_start_time=queue["start_time"]
+    now = datetime.now(GMT_PLUS_5)
+
+    if queue_start_time > now :
+        await query.edit_message_text(f"Запись на эту очередь начнется {queue_start_time.strftime('%d.%m.%Y %H:%M')}")
+        return
+    #Получаем координаты очереди из базы данных
 
     #Сохраняем имя очереди, чтобы было ясно, что локацию ждут только для ask_location
     context.user_data["expecting_location_for"] = queue_name
@@ -688,7 +706,7 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
 
     sent_message = await context.bot.send_message(
         chat_id=query.message.chat_id,
-        text=f"Для записи в очередь '{queue_name}', поделитесь геолокацией:",
+        text=f"Для записи в очередь '{queue_name}', включите GPS и поделитесь геолокацией:",
         reply_markup=reply_markup
     )
 
@@ -698,10 +716,12 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
 async def get_queue(queue_name: str) -> dict | None:
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT queue_name, latitude, longitude FROM queues WHERE queue_name = ?", (queue_name,))
+        cursor.execute("SELECT queue_name, start_time, latitude, longitude FROM queues WHERE queue_name = ?", (queue_name,))
         result = cursor.fetchone()
         if result:
-            return {"queue_name": result[0], "latitude": result[1], "longitude": result[2]}
+            start_time_str = result[1]
+            start_time = datetime.fromisoformat(start_time_str) if start_time_str else None
+            return {"queue_name": result[0], "start_time":start_time, "latitude": result[2], "longitude": result[3]}
         else:
             return None
     except sqlite3.Error as e:
@@ -709,58 +729,78 @@ async def get_queue(queue_name: str) -> dict | None:
         return None
 
 async def handle_location(update: Update, context: CallbackContext) -> None:
-    """Обрабатываем отправленную пользователем геолокацию, разрешая только данные с GPS."""
+    """Обрабатываем отправленную пользователем геолокацию, разрешая только данные с кнопки."""
     user = update.message.from_user
     location = update.message.location
     queue_name = context.user_data.get('queue_name')
     user_id = context.user_data.get('user_id')
+    expecting_location = context.user_data.get("expecting_location_for") #Достаем значение
+    location_message_id=context.user_data.get("location_message_id")
+    #Проверка - ответом ли на сообщение с кнопкой отправлена геолокация
+    if update.message.reply_to_message is None or update.message.reply_to_message.message_id != location_message_id:
+        await update.message.reply_text("Пожалуйста, поделитесь геолокацией, используя кнопку 'Поделиться геолокацией'.")
+        #После этого удаляем сообщение
+        try:
+            await context.bot.delete_message(chat_id=update.message.chat_id, message_id=update.message.message_id)
+            logger.info("Удалено сообщение с геолокацией, отправленное не через кнопку")
+        except Exception as e:
+            logger.error(f"Не удалось удалить сообщение с геолокацией: {e}")
+        
+        return #Игнорируем геолокацию
 
-    # Проверяем, есть ли horizontal_accuracy (он есть только у GPS-координат)
-    if not hasattr(location, "horizontal_accuracy") or location.horizontal_accuracy is None:
-        await update.message.reply_text("Выбранное вами место не принимается. Включите GPS и отправьте реальную геолокацию через кнопку.")
+    if not expecting_location:
+        #Удаляем сообщение
+        await update.message.reply_text("Не понимаю ваш запрос")
         return
 
-    # Проверяем, существует ли активный запрос геолокации
-    location_request_id = context.user_data.get("location_request_id")
-    if not location_request_id:
-        await update.message.reply_text("Используйте кнопку 'Поделиться геолокацией'. Вручную введенные координаты не принимаются.")
-        return
-
-    # Удаляем идентификатор запроса (чтобы не использовали повторно)
-    del context.user_data["location_request_id"]
-
-    # Проверяем наличие очереди
     if not queue_name:
-        await update.message.reply_text("Ошибка: очередь не найдена.")
+        await update.message.reply_text("Ошибка: название очереди не найдено.")
         return
-
-    # Получаем координаты очереди из базы данных
+   #Получаем очередь и время из базы данных
     queue = await get_queue(queue_name)
     if not queue:
-        await update.message.reply_text("Ошибка: очередь не найдена.")
+        await update.effective_message.reply_text("Ошибка: очередь не найдена.")
+        return
+    target_coordinates = (queue['latitude'], queue['longitude'])
+    
+    #Находим время начала
+    start_time = queue["start_time"]
+    now = datetime.now(GMT_PLUS_5)
+
+    if start_time > now:
+        await update.message.reply_text(f"Запись на эту очередь начнется {start_time.strftime('%d.%m.%Y %H:%M')}")
         return
 
-    target_coordinates = (queue['latitude'], queue['longitude'])
+    #Удаляем контекстные данные
+    context.user_data.pop("expecting_location_for", None)
+    #try:
+    #   await context.bot.delete_message(chat_id=update.message.chat_id, message_id=context.user_data["location_message_id"])
+    #   del context.user_data["location_message_id"]
+    #   logger.info("Удалено сообщение с запросом геолокации")
+    #except Exception as e:
+    #   logger.error(f"Не удалось удалить сообщение с кнопкой геолокации: {e}")
+
+    # Удаляем клавиатуру
+    reply_markup = ReplyKeyboardMarkup([[]], resize_keyboard=True)
+    await update.message.reply_text("Геолокация получена...", reply_markup=reply_markup)
+
     user_coord = (location.latitude, location.longitude)
     distance = geodesic(user_coord, target_coordinates).meters
 
     if distance <= max_distance:
-        # Добавляем пользователя в очередь
+        # Добавляем пользователя в очередь в базе данных
         try:
-            join_time = datetime.now(GMT_PLUS_5).isoformat()
+            join_time = datetime.now(GMT_PLUS_5).isoformat() #Добавлено время, + часовой пояс
             cursor = conn.cursor()
             cursor.execute("INSERT OR IGNORE INTO queue_users (queue_name, user_id, join_time) VALUES (?, ?, ?)", (queue_name, user_id, join_time))
             conn.commit()
-            logger.info(f"Пользователь {user_id} добавлен в очередь '{queue_name}'")
+            logger.info(f"Пользователь {user_id} добавлен в очередь '{queue_name}' в базе данных")
         except sqlite3.Error as e:
-            logger.error(f"Ошибка при добавлении в очередь: {e}")
+            logger.error(f"Ошибка при добавлении пользователя в очередь в базе данных: {e}")
 
         await update.message.reply_text(f"Вы записаны в очередь '{queue_name}'.")
     else:
-        await update.message.reply_text("Вы слишком далеко от места очереди.")
-
-    # Очистка временных данных
-    context.user_data.pop("queue_name", None)
+        await update.message.reply_text("Слишком далеко для записи в очередь.")
 
 async def is_user_in_queue(queue_name: str, user_id: int) -> bool:
     try:
