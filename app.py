@@ -13,6 +13,8 @@ import uuid  # Импортируем uuid
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+max_distance = 250
+
 # Подключение к базе данных SQLite
 DATABASE_NAME = 'queue_bot.db'
 
@@ -739,7 +741,7 @@ async def handle_location(update: Update, context: CallbackContext) -> None:
     user_coord = (location.latitude, location.longitude)
     distance = geodesic(user_coord, target_coordinates).meters
 
-    if distance <= 100:
+    if distance <= max_distance:
         # Добавляем пользователя в очередь в базе данных
         try:
             join_time = datetime.now(GMT_PLUS_5).isoformat() #Добавлено время, + часовой пояс
