@@ -9,11 +9,11 @@ import httpx
 
 # Структура данных для хранения очередей
 queues = {}  # Словарь для хранения очередей
-user_names = {}  # Словарь для хранения ФИО пользователей
+user_names = {}  # Словарь для хранения имя пользователей
 user_state = {}  # Словарь для хранения состояния (запрос имени или уже введено)
 
 # Stages для ConversationHandler
-QUEUE_NAME, QUEUE_DATE, QUEUE_TIME = range(3)
+QUEUE_NAME, QUEUE_DATE, QUEUE_TIME, CHANGE_NAME = range(4) # Добавлен CHANGE_NAME
 
 # Координаты выбранной точки для проверки расстояния (например, координаты места очереди)
 mathfac_coordinates = (57.159312774716255, 65.52250817857353)
@@ -30,32 +30,93 @@ async def send_notification(user_id: int, message: str, context: CallbackContext
     except Exception as e:
         logger.error(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
 
-# Команда /start — запросить ФИО пользователя
+# Команда /start — запросить имя пользователя
 async def start(update: Update, context: CallbackContext) -> None:
     user = update.message.from_user
+    keyboard = [
+        [InlineKeyboardButton("Показать очереди", callback_data="show_queues")],  # Existing button
+        [InlineKeyboardButton("Сменить имя", callback_data="change_name")]  # New button
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
     if user.id not in user_state or user_state[user.id] != "name_entered":
         # Запрашиваем имя, если оно еще не введено
-        await update.message.reply_text("Привет! Пожалуйста, введите ваше ФИО:")
+        await update.message.reply_text("Привет! Пожалуйста, введите ваше имя:")
         user_state[user.id] = "waiting_for_name"
     else:
-        await show_queues(update, context)  # Показываем очереди, если имя уже введено
+        # Показываем клавиатуру выбора, если имя уже введено
+        await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
 
-# Обработчик ввода ФИО пользователя
+# Обработчик нажатий на кнопки главного меню
+async def main_menu_buttons(update: Update, context: CallbackContext) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "show_queues":
+        await show_queues(update, context)
+    elif query.data == "change_name":
+        await change_name_start(update, context)
+
+# Обработчик ввода имя пользователя
 async def set_name(update: Update, context: CallbackContext) -> None:
     user = update.message.from_user
-    user_name = update.message.text  # Получаем введенное ФИО
+    user_name = update.message.text  # Получаем введенное имя
 
-    # Сохраняем ФИО пользователя в словарь
+    # Сохраняем имя пользователя в словарь
     user_names[user.id] = user_name
 
-    # Подтверждаем, что ФИО сохранено
-    await update.message.reply_text(f"Ваше ФИО '{user_name}' сохранено.")
+    # Подтверждаем, что имя сохранено
+    await update.message.reply_text(f"Ваше имя '{user_name}' сохранено.")
     
     # Меняем состояние, чтобы больше не запрашивать имя
     user_state[user.id] = "name_entered"
-    
-    # Показываем доступные очереди
-    await show_queues(update, context)
+
+    # Показываем кнопки главного меню
+    keyboard = [
+        [InlineKeyboardButton("Показать очереди", callback_data="show_queues")],
+        [InlineKeyboardButton("Сменить имя", callback_data="change_name")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
+
+# Обработчик начала смены имени
+async def change_name_start(update: Update, context: CallbackContext) -> None:
+    await update.callback_query.message.reply_text("Пожалуйста, введите новое имя:")
+    return CHANGE_NAME
+
+# Обработчик получения нового имени
+async def change_name(update: Update, context: CallbackContext) -> int:
+    user = update.message.from_user
+    new_name = update.message.text
+
+    # Обновляем имя пользователя в словаре
+    user_names[user.id] = new_name
+
+    # Подтверждаем, что имя изменено
+    await update.message.reply_text(f"Ваше имя изменено на '{new_name}'.")
+    user_state[user.id] = "name_entered" # Update user state
+
+    # Показываем кнопки главного меню
+    keyboard = [
+        [InlineKeyboardButton("Показать очереди", callback_data="show_queues")],
+        [InlineKeyboardButton("Сменить имя", callback_data="change_name")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
+
+    return ConversationHandler.END # End conversation
+
+# Обработчик отмены смены имени
+async def change_name_cancel(update: Update, context: CallbackContext) -> int:
+    await update.message.reply_text("Смена имени отменена.")
+    # Показываем кнопки главного меню
+    keyboard = [
+        [InlineKeyboardButton("Показать очереди", callback_data="show_queues")],
+        [InlineKeyboardButton("Сменить имя", callback_data="change_name")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
+    return ConversationHandler.END
 
 # Обработчик начала создания очереди
 async def create_queue_start(update: Update, context: CallbackContext) -> int:
@@ -161,7 +222,7 @@ async def leave_queue(update: Update, context: CallbackContext) -> None:
     user_name = user_names.get(user.id, None)
 
     if not user_name:
-        await update.message.reply_text("Для начала введите ваше ФИО с помощью команды /start.")
+        await update.message.reply_text("Для начала введите ваше имя с помощью команды /start.")
         return
 
     # Находим очереди, в которых состоит пользователь
@@ -189,7 +250,7 @@ async def leave_button(update: Update, context: CallbackContext) -> None:
     queue_name = query.data.split("_")[1]  # Извлекаем название очереди из callback_data
 
     if not user_name:
-        await query.edit_message_text("Для начала введите ваше ФИО с помощью команды /start.")
+        await query.edit_message_text("Для начала введите ваше имя с помощью команды /start.")
         return
 
     if queue_name not in queues:
@@ -210,7 +271,7 @@ async def skip_turn(update: Update, context: CallbackContext) -> None:
     user_name = user_names.get(user.id, None)
 
     if not user_name:
-        await update.message.reply_text("Для начала введите ваше ФИО с помощью команды /start.")
+        await update.message.reply_text("Для начала введите ваше имя с помощью команды /start.")
         return
 
     # Находим очереди, в которых состоит пользователь
@@ -238,7 +299,7 @@ async def skip_button(update: Update, context: CallbackContext) -> None:
     queue_name = query.data.split("_")[1]  # Извлекаем название очереди из callback_data
 
     if not user_name:
-        await query.edit_message_text("Для начала введите ваше ФИО с помощью команды /start.")
+        await query.edit_message_text("Для начала введите ваше имя с помощью команды /start.")
         return
 
     if queue_name not in queues:
@@ -272,7 +333,7 @@ async def queue_info(update: Update, context: CallbackContext) -> None:
     user_name = user_names.get(user.id, None)
 
     if not user_name:
-        await update.message.reply_text("Для начала введите ваше ФИО с помощью команды /start.")
+        await update.message.reply_text("Для начала введите ваше имя с помощью команды /start.")
         return
 
     # Находим очереди, в которых состоит пользователь
@@ -300,7 +361,7 @@ async def queue_info_button(update: Update, context: CallbackContext) -> None:
     queue_name = query.data.split("_")[1]  # Извлекаем название очереди из callback_data
 
     if not user_name:
-        await query.edit_message_text("Для начала введите ваше ФИО с помощью команды /start.")
+        await query.edit_message_text("Для начала введите ваше имя с помощью команды /start.")
         return
 
     if queue_name not in queues:
@@ -375,7 +436,7 @@ async def unknown(update: Update, context: CallbackContext) -> None:
 # Функция для вывода списка доступных команд
 async def help_command(update: Update, context: CallbackContext) -> None:
     help_text = (
-        "/start - Начать взаимодействие с ботом (ввод ФИО)\n"
+        "/start - Начать взаимодействие с ботом (ввод имени)\n"
         "/create_queue - Создать очередь\n"
         "/leave - Покинуть очередь\n"
         "/skip - Пропустить свой ход в очереди\n"
@@ -389,7 +450,7 @@ async def help_command(update: Update, context: CallbackContext) -> None:
 async def set_commands(app):
     commands = [
         BotCommand("start", "Начать"),
-        BotCommand("create_queue", "Создать очередь (админ)"),
+        BotCommand("create_queue", "Создать очередь"),
         BotCommand("leave", "Покинуть очередь"),
         BotCommand("skip", "Пропустить ход"),
         BotCommand("queue_info", "Список в очереди"),
@@ -442,8 +503,21 @@ def main():
         fallbacks=[CommandHandler("cancel", create_queue_cancel)],
     )
 
+    # ConversationHandler для смены имени
+    change_name_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(change_name_start, pattern="^change_name$")],
+        states={
+            CHANGE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, change_name)]
+        },
+        fallbacks=[CommandHandler("cancel", change_name_cancel)]
+    )
+
     # Добавляем ConversationHandler
     application.add_handler(conv_handler)
+    application.add_handler(change_name_handler)
+
+    # Добавляем обработчик для кнопок главного меню
+    application.add_handler(CallbackQueryHandler(main_menu_buttons, pattern="^(show_queues|change_name)$"))
 
     # Обработчики команд
     application.add_handler(CommandHandler("start", start))
@@ -460,9 +534,9 @@ def main():
 
     # Обработчики нажатий кнопок
     application.add_handler(CallbackQueryHandler(ask_location, pattern="^ask_location_"))
-    application.add_handler(CallbackQueryHandler(leave_button, pattern="^leave_"))
-    application.add_handler(CallbackQueryHandler(skip_button, pattern="^skip_"))
-    application.add_handler(CallbackQueryHandler(queue_info_button, pattern="^info_"))
+    application.add_handler(CallbackQueryHandler(leave_button, pattern="leave_"))
+    application.add_handler(CommandHandler("skip", skip_turn))
+    application.add_handler(CallbackQueryHandler(queue_info_button, pattern="info_"))
 
     # Обработчик неизвестных callback query (это важно!)
     application.add_handler(CallbackQueryHandler(unknown))
