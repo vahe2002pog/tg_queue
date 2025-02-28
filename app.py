@@ -1,6 +1,6 @@
 import logging
 import json
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, BotCommand, LinkPreviewOptions
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, BotCommand, LinkPreviewOptions, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters, ApplicationBuilder, Defaults, ConversationHandler, JobQueue
 from datetime import datetime, timedelta, timezone
 from config import TOKEN, ADMIN_ID
@@ -752,14 +752,13 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
     location_request_id = str(uuid.uuid4())
     context.user_data["location_request_id"] = location_request_id
 
-    # Создаем кнопку
+    # Создаем кнопку **ReplyKeyboardMarkup**, а не Inline
     keyboard = [
-        [InlineKeyboardButton("Отправить геолокацию", web_app=WebAppInfo(url="https://www.phygitaltyumen.ru/getlocation/"))]
+        [KeyboardButton("Отправить геолокацию", web_app=WebAppInfo(url="https://www.phygitaltyumen.ru/getlocation/"))]
     ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    # Отправляем только одно сообщение
+    # Отправляем сообщение с кнопкой
     sent_message = await query.message.reply_text(
         f"Для записи в очередь '{queue_name}', нажмите кнопку и отправьте вашу геолокацию:",
         reply_markup=reply_markup
@@ -767,7 +766,6 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
 
     # Сохраняем ID сообщения
     context.user_data["location_message_id"] = sent_message.message_id
-
 
 async def get_queue(queue_name: str) -> dict | None:
     try:
