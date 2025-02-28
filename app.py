@@ -176,7 +176,7 @@ async def change_name(update: Update, context: CallbackContext) -> int:
 
     # Подтверждаем, что имя изменено
     await update.message.reply_text(f"Ваше имя изменено на '{new_name}'.")
-    user_state[user_id] = "name_entered" # Update user state
+    user_state[user.id] = "name_entered" # Update user state
 
     # Показываем кнопки главного меню
     keyboard = [
@@ -467,14 +467,15 @@ async def skip_button(update: Update, context: CallbackContext) -> None:
             await query.edit_message_text("Такой очереди нет.")
             return
 
-        queue_users_ids = await get_queue_users_ids(queue_name) #извлекаем ID
+        queue_users_ids = await get_queue_users_ids(queue_name)
 
         if user_id not in queue_users_ids:
              await query.edit_message_text("Вы не состоите в этой очереди.")
              return
          
+        #Ищем наш id, чтобы понимать очередность
         current_index = queue_users_ids.index(user_id)
-        
+
         if current_index+1 < len(queue_users_ids):
             #Меняем местами текущего пользователя и следующего
             
@@ -592,36 +593,6 @@ async def queue_info_button(update: Update, context: CallbackContext) -> None:
 
     await query.edit_message_text(f"Список участников очереди {queue_name}:\n{users_text}")
 
-#Исправлена функция
-async def get_queue_users_name(queue_name: str) -> list[str]:
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT users.name FROM users
-            JOIN queue_users ON users.user_id = queue_users.user_id
-            WHERE queue_users.queue_name = ?
-            ORDER BY queue_users.join_time ASC
-        """, (queue_name,))
-        results = cursor.fetchall()
-        return [row[0] for row in results]
-    except sqlite3.Error as e:
-        logger.error(f"Ошибка при получении участников очереди из базы данных: {e}")
-        return []
-
-#Добавлена функция для извлечения имени по id
-async def get_user_name(user_id: int)->str | None:
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""SELECT name FROM users WHERE user_id = ?""",(user_id,))
-        result = cursor.fetchone()
-        if result:
-            return result[0]
-        else:
-            return None
-    except sqlite3.Error as e:
-        logger.error(f"Ошибка при получении имени из базы данных: {e}")
-        return None
-
 # Функция для отображения списка очередей
 async def show_queues(update: Update, context: CallbackContext) -> None:
    # Получаем список очередей из базы данных
@@ -679,7 +650,7 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
         reply_markup=reply_markup
     )
 
-async def get_queue(queue_name: str) -> dict | None:
+async def get_queue(queue_name: str) -> dict or None:
     try:
         cursor = conn.cursor()
         cursor.execute("SELECT queue_name, latitude, longitude FROM queues WHERE queue_name = ?", (queue_name,))
@@ -766,6 +737,7 @@ async def help_command(update: Update, context: CallbackContext) -> None:
         "/leave - Покинуть очередь\n"
         "/skip - Пропустить свой ход в очереди\n"
         "/queue_info - Просмотреть список людей в очереди\n"
+        "/show_queues - Показать доступные очереди и записаться в них\n"
         "/help - Получить помощь (список команд)\n"
     )
     await update.message.reply_text(help_text)
@@ -789,7 +761,7 @@ async def set_commands(app):
     except Exception as e:
         logger.error(f"Не удалось установить команды: {e}")
 
-async def get_user_name(user_id: int)->str | None:
+async def get_user_name(user_id: int)->str or None:
     try:
         cursor = conn.cursor()
         cursor.execute("""SELECT name FROM users WHERE user_id = ?""",(user_id,))
