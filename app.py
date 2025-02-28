@@ -709,31 +709,35 @@ async def get_queue(queue_name: str) -> dict | None:
         return None
 
 async def handle_location(update: Update, context: CallbackContext) -> None:
+    """Обрабатываем отправленную пользователем геолокацию, разрешая только данные с GPS."""
     user = update.message.from_user
     location = update.message.location
     queue_name = context.user_data.get('queue_name')
     user_id = context.user_data.get('user_id')
-    expecting_location = context.user_data.get("expecting_location_for")
-    location_message_id = context.user_data.get("location_message_id")
 
-    # Проверяем, была ли геолокация отправлена именно в ответ на сообщение с кнопкой
-    if update.message.reply_to_message is None or update.message.reply_to_message.message_id != location_message_id:
-        await update.message.reply_text("Пожалуйста, используйте кнопку 'Поделиться геолокацией'. Вручную введенные координаты не принимаются.")
+    # Проверяем, есть ли horizontal_accuracy (он есть только у GPS-координат)
+    if not hasattr(location, "horizontal_accuracy") or location.horizontal_accuracy is None:
+        await update.message.reply_text("Выбранное вами место не принимается. Включите GPS и отправьте реальную геолокацию через кнопку.")
         return
 
-    # Проверяем, есть ли в сообщении venue (место), что указывает на ручной ввод
-    if update.message.venue:
-        await update.message.reply_text("Выбранное вами место не принимается. Отправьте реальную геолокацию через кнопку.")
+    # Проверяем, существует ли активный запрос геолокации
+    location_request_id = context.user_data.get("location_request_id")
+    if not location_request_id:
+        await update.message.reply_text("Используйте кнопку 'Поделиться геолокацией'. Вручную введенные координаты не принимаются.")
         return
 
-    if not expecting_location or not queue_name:
-        await update.message.reply_text("Ошибка: запрос на геолокацию не найден.")
+    # Удаляем идентификатор запроса (чтобы не использовали повторно)
+    del context.user_data["location_request_id"]
+
+    # Проверяем наличие очереди
+    if not queue_name:
+        await update.message.reply_text("Ошибка: очередь не найдена.")
         return
 
     # Получаем координаты очереди из базы данных
     queue = await get_queue(queue_name)
     if not queue:
-        await update.effective_message.reply_text("Ошибка: очередь не найдена.")
+        await update.message.reply_text("Ошибка: очередь не найдена.")
         return
 
     target_coordinates = (queue['latitude'], queue['longitude'])
@@ -756,8 +760,7 @@ async def handle_location(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text("Вы слишком далеко от места очереди.")
 
     # Очистка временных данных
-    context.user_data.pop("expecting_location_for", None)
-    context.user_data.pop("location_message_id", None)
+    context.user_data.pop("queue_name", None)
 
 async def is_user_in_queue(queue_name: str, user_id: int) -> bool:
     try:
