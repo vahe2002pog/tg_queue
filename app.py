@@ -758,7 +758,7 @@ def main():
     application.add_handler(CallbackQueryHandler(skip_button, pattern="^skip_"))
     application.add_handler(CallbackQueryHandler(queue_info_button, pattern="^info_"))
 
-    # Обработчик неизвестных callback query (это важно!)
+    # Обработчик неизвестных callback query
     application.add_handler(CallbackQueryHandler(unknown))
 
     # Запускаем приложение
