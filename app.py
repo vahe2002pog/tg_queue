@@ -718,7 +718,12 @@ async def handle_location(update: Update, context: CallbackContext) -> None:
 
     # Проверяем, была ли геолокация отправлена именно в ответ на сообщение с кнопкой
     if update.message.reply_to_message is None or update.message.reply_to_message.message_id != location_message_id:
-        await update.message.reply_text("Пожалуйста, используйте кнопку 'Поделиться геолокацией'. Вручную отправленные координаты не принимаются.")
+        await update.message.reply_text("Пожалуйста, используйте кнопку 'Поделиться геолокацией'. Вручную введенные координаты не принимаются.")
+        return
+
+    # Проверяем, есть ли в сообщении venue (место), что указывает на ручной ввод
+    if update.message.venue:
+        await update.message.reply_text("Выбранное вами место не принимается. Отправьте реальную геолокацию через кнопку.")
         return
 
     if not expecting_location or not queue_name:
