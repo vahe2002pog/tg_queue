@@ -7,6 +7,7 @@ from geopy.distance import geodesic
 import asyncio
 import httpx
 import sqlite3
+import uuid  # Импортируем uuid
 
 # Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -107,7 +108,7 @@ async def start(update: Update, context: CallbackContext) -> None:
     else:
         # Запрашиваем имя, если оно еще не введено
         await update.message.reply_text("Привет! Пожалуйста, введите ваше имя:")
-        user_state[user_id] = "waiting_for_name"
+        user_state[user.id] = "waiting_for_name"
 
 # Обработчик нажатий на кнопки главного меню
 async def main_menu_buttons(update: Update, context: CallbackContext) -> None:
@@ -135,13 +136,13 @@ async def set_name(update: Update, context: CallbackContext) -> None:
         logger.error(f"Ошибка при сохранении имени пользователя в базе данных: {e}")
 
     # Сохраняем имя пользователя в словарь
-    user_names[user_id] = user_name
+    user_names[user.id] = user_name
 
     # Подтверждаем, что имя сохранено
     await update.message.reply_text(f"Ваше имя '{user_name}' сохранено.")
     
     # Меняем состояние, чтобы больше не запрашивать имя
-    user_state[user_id] = "name_entered"
+    user_state[user.id] = "name_entered"
 
     # Показываем кнопки главного меню
     keyboard = [
@@ -163,7 +164,7 @@ async def change_name(update: Update, context: CallbackContext) -> int:
     new_name = update.message.text
 
     # Обновляем имя пользователя в словаре
-    user_names[user_id] = new_name
+    user_names[user.id] = new_name
 
      # Обновляем имя пользователя в базе данных
     try:
@@ -467,11 +468,17 @@ async def skip_button(update: Update, context: CallbackContext) -> None:
             await query.edit_message_text("Такой очереди нет.")
             return
 
-        queue_users_ids = await get_queue_users_ids(queue_name) #извлекаем ID
+        queue_users = await get_queue_users_name(queue_name) #извлекаем имена
 
-        if user_id not in queue_users_ids:
+        if user_name not in queue_users:
              await query.edit_message_text("Вы не состоите в этой очереди.")
              return
+
+        #3. Извлекаем queue_users в числовом виде, чтобы можно было работать с очередью
+        queue_users_ids = await get_queue_users_ids(queue_name) 
+        if not queue_users_ids:
+            await query.edit_message_text("В очереди пока нет участников.")
+            return
 
         current_index = queue_users_ids.index(user_id)
         
@@ -670,14 +677,21 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
 
     #Сохраняем имя очереди, чтобы было ясно, что локацию ждут только для ask_location
     context.user_data["expecting_location_for"] = queue_name
+    #Генерируем location_request_id
+    location_request_id = str(uuid.uuid4())
+    context.user_data["location_request_id"] = location_request_id
+    #Создаем кнопку
     keyboard = [[KeyboardButton(text="Поделиться геолокацией", request_location=True)]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
-    await context.bot.send_message(
+    sent_message = await context.bot.send_message(
         chat_id=query.message.chat_id,
         text=f"Для записи в очередь '{queue_name}', поделитесь геолокацией:",
         reply_markup=reply_markup
     )
+
+    #Сохраняем айди сообщения
+    context.user_data["location_message_id"] = sent_message.message_id
 
 async def get_queue(queue_name: str) -> dict | None:
     try:
@@ -697,20 +711,17 @@ async def handle_location(update: Update, context: CallbackContext) -> None:
     location = update.message.location
     queue_name = context.user_data.get('queue_name')
     user_id = context.user_data.get('user_id')
-    expected_queue = context.user_data.get("expecting_location_for")
-    if "expecting_location_for" in  context.user_data:
-        del context.user_data["expecting_location_for"] #Удаляем инфу, чтобы нельзя было воспользоваться ей повторно
-
-    if not expected_queue:
-         await update.message.reply_text("Пожалуйста, сначала выберите очередь, чтобы поделиться своей геолокацией.")
-         return #Игнорируем геолокацию
-
-    if expected_queue != queue_name:
-         return #Игнорируем, локация не для той очереди
-
-    # Удаляем клавиатуру
-    reply_markup = ReplyKeyboardMarkup([[]], resize_keyboard=True)
-    await update.message.reply_text("Геолокация получена...", reply_markup=reply_markup)
+    expecting_location = context.user_data.get("expecting_location_for") #Достаем значение
+    location_message_id=context.user_data.get("location_message_id")
+    #Проверка - ответом ли на сообщение с кнопкой отправлена геолокация
+    if update.message.reply_to_message is None or update.message.reply_to_message.message_id != location_message_id:
+        await update.message.reply_text("Пожалуйста, поделитесь геолокацией, используя кнопку 'Поделиться геолокацией'.")
+        return #Игнорируем геолокацию
+    
+    if not expecting_location:
+        #Удаляем сообщение
+        await update.message.reply_text("Не понимаю ваш запрос")
+        return
 
     if not queue_name:
         await update.message.reply_text("Ошибка: название очереди не найдено.")
@@ -733,7 +744,7 @@ async def handle_location(update: Update, context: CallbackContext) -> None:
         try:
             join_time = datetime.now(GMT_PLUS_5).isoformat() #Добавлено время, + часовой пояс
             cursor = conn.cursor()
-            cursor.execute("INSERT OR IGNORE INTO queue_users (queue_name, user_id, join_time) VALUES (?, ?, ?)", (queue_name, user_id, join_time)) #Добавлено время
+            cursor.execute("INSERT OR IGNORE INTO queue_users (queue_name, user_id, join_time) VALUES (?, ?, ?)", (queue_name, user_id, join_time))
             conn.commit()
             logger.info(f"Пользователь {user_id} добавлен в очередь '{queue_name}' в базе данных")
         except sqlite3.Error as e:
@@ -742,6 +753,12 @@ async def handle_location(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text(f"Вы записаны в очередь '{queue_name}'.")
     else:
         await update.message.reply_text("Слишком далеко для записи в очередь.")
+    
+    #Удаляем
+    if "expecting_location_for" in context.user_data:
+        del context.user_data["expecting_location_for"]
+    if "location_message_id" in context.user_data:
+        del context.user_data["location_message_id"]
 
 async def is_user_in_queue(queue_name: str, user_id: int) -> bool:
     try:
