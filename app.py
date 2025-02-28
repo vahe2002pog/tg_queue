@@ -766,7 +766,6 @@ async def help_command(update: Update, context: CallbackContext) -> None:
         "/leave - Покинуть очередь\n"
         "/skip - Пропустить свой ход в очереди\n"
         "/queue_info - Просмотреть список людей в очереди\n"
-        "/show_queues - Показать доступные очереди и записаться в них\n"
         "/help - Получить помощь (список команд)\n"
     )
     await update.message.reply_text(help_text)
