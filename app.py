@@ -713,54 +713,46 @@ async def handle_location(update: Update, context: CallbackContext) -> None:
     location = update.message.location
     queue_name = context.user_data.get('queue_name')
     user_id = context.user_data.get('user_id')
-    expecting_location = context.user_data.get("expecting_location_for") #Достаем значение
-    location_message_id=context.user_data.get("location_message_id")
-    #Проверка - ответом ли на сообщение с кнопкой отправлена геолокация
+    expecting_location = context.user_data.get("expecting_location_for")
+    location_message_id = context.user_data.get("location_message_id")
+
+    # Проверяем, была ли геолокация отправлена именно в ответ на сообщение с кнопкой
     if update.message.reply_to_message is None or update.message.reply_to_message.message_id != location_message_id:
-        await update.message.reply_text("Пожалуйста, поделитесь геолокацией, используя кнопку 'Поделиться геолокацией'.")
-        return #Игнорируем геолокацию
-    
-    if not expecting_location:
-        #Удаляем сообщение
-        await update.message.reply_text("Не понимаю ваш запрос")
+        await update.message.reply_text("Пожалуйста, используйте кнопку 'Поделиться геолокацией'. Вручную отправленные координаты не принимаются.")
         return
 
-    if not queue_name:
-        await update.message.reply_text("Ошибка: название очереди не найдено.")
+    if not expecting_location or not queue_name:
+        await update.message.reply_text("Ошибка: запрос на геолокацию не найден.")
         return
 
-    #Получаем координаты очереди из базы данных
+    # Получаем координаты очереди из базы данных
     queue = await get_queue(queue_name)
-
     if not queue:
         await update.effective_message.reply_text("Ошибка: очередь не найдена.")
         return
-    target_coordinates = (queue['latitude'], queue['longitude'])
-    
 
+    target_coordinates = (queue['latitude'], queue['longitude'])
     user_coord = (location.latitude, location.longitude)
     distance = geodesic(user_coord, target_coordinates).meters
 
     if distance <= max_distance:
-        # Добавляем пользователя в очередь в базе данных
+        # Добавляем пользователя в очередь
         try:
-            join_time = datetime.now(GMT_PLUS_5).isoformat() #Добавлено время, + часовой пояс
+            join_time = datetime.now(GMT_PLUS_5).isoformat()
             cursor = conn.cursor()
             cursor.execute("INSERT OR IGNORE INTO queue_users (queue_name, user_id, join_time) VALUES (?, ?, ?)", (queue_name, user_id, join_time))
             conn.commit()
-            logger.info(f"Пользователь {user_id} добавлен в очередь '{queue_name}' в базе данных")
+            logger.info(f"Пользователь {user_id} добавлен в очередь '{queue_name}'")
         except sqlite3.Error as e:
-            logger.error(f"Ошибка при добавлении пользователя в очередь в базе данных: {e}")
+            logger.error(f"Ошибка при добавлении в очередь: {e}")
 
         await update.message.reply_text(f"Вы записаны в очередь '{queue_name}'.")
     else:
-        await update.message.reply_text("Слишком далеко для записи в очередь.")
-    
-    #Удаляем
-    if "expecting_location_for" in context.user_data:
-        del context.user_data["expecting_location_for"]
-    if "location_message_id" in context.user_data:
-        del context.user_data["location_message_id"]
+        await update.message.reply_text("Вы слишком далеко от места очереди.")
+
+    # Очистка временных данных
+    context.user_data.pop("expecting_location_for", None)
+    context.user_data.pop("location_message_id", None)
 
 async def is_user_in_queue(queue_name: str, user_id: int) -> bool:
     try:
