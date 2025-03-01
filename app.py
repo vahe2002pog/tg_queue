@@ -3,7 +3,7 @@ import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, BotCommand, LinkPreviewOptions, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters, ApplicationBuilder, Defaults, ConversationHandler, JobQueue
 from datetime import datetime, timedelta, timezone
-from config import TOKEN, ADMIN_ID, MF_COORDINATES
+from config import TOKEN, ADMIN_ID, MF_COORDINATES, GET_LOCATION_URL
 from geopy.distance import geodesic
 from telegram import WebAppInfo
 import asyncio
@@ -101,8 +101,8 @@ async def start(update: Update, context: CallbackContext) -> None:
         user_names[user_id] = user_name  # Load into memory
         user_state[user_id] = "name_entered"
         keyboard = [
-            [InlineKeyboardButton("Показать очереди", callback_data="show_queues")],
-            [InlineKeyboardButton("Сменить имя", callback_data="change_name")]
+            [InlineKeyboardButton("📋 Показать очереди", callback_data="show_queues")],
+            [InlineKeyboardButton("🔄 Сменить имя", callback_data="change_name")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         # Показываем клавиатуру выбора, если имя уже введено
@@ -110,7 +110,7 @@ async def start(update: Update, context: CallbackContext) -> None:
 
     else:
         # Запрашиваем имя, если оно еще не введено
-        await update.message.reply_text("Привет! Пожалуйста, введите ваше имя:")
+        await update.message.reply_text("Привет! Пожалуйста, введите ваше *имя*:", parse_mode="Markdown")
         user_state[user_id] = "waiting_for_name"
 
 # Обработчик нажатий на кнопки главного меню
@@ -142,22 +142,22 @@ async def set_name(update: Update, context: CallbackContext) -> None:
     user_names[user.id] = user_name
 
     # Подтверждаем, что имя сохранено
-    await update.message.reply_text(f"Ваше имя '{user_name}' сохранено.")
+    await update.message.reply_text(f"✅ Ваше имя *{user_name}* сохранено.", parse_mode="Markdown")
     
     # Меняем состояние, чтобы больше не запрашивать имя
     user_state[user.id] = "name_entered"
 
     # Показываем кнопки главного меню
     keyboard = [
-        [InlineKeyboardButton("Показать очереди", callback_data="show_queues")],
-        [InlineKeyboardButton("Сменить имя", callback_data="change_name")]
+        [InlineKeyboardButton("📋 Показать очереди", callback_data="show_queues")],
+        [InlineKeyboardButton("🔄 Сменить имя", callback_data="change_name")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
 
 # Обработчик начала смены имени
 async def change_name_start(update: Update, context: CallbackContext) -> None:
-    await update.callback_query.message.reply_text("Пожалуйста, введите новое имя:")
+    await update.callback_query.message.reply_text("🔄 Пожалуйста, введите новое *имя*:", parse_mode="Markdown")
     return CHANGE_NAME
 
 # Обработчик получения нового имени
@@ -179,13 +179,13 @@ async def change_name(update: Update, context: CallbackContext) -> int:
         logger.error(f"Ошибка при изменении имени пользователя в базе данных: {e}")
 
     # Подтверждаем, что имя изменено
-    await update.message.reply_text(f"Ваше имя изменено на '{new_name}'.")
+    await update.message.reply_text(f"✅ Ваше имя изменено на *{new_name}*.", parse_mode="Markdown")
     user_state[user.id] = "name_entered" # Update user state
 
     # Показываем кнопки главного меню
     keyboard = [
-        [InlineKeyboardButton("Показать очереди", callback_data="show_queues")],
-        [InlineKeyboardButton("Сменить имя", callback_data="change_name")]
+        [InlineKeyboardButton("📋 Показать очереди", callback_data="show_queues")],
+        [InlineKeyboardButton("🔄 Сменить имя", callback_data="change_name")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
@@ -197,8 +197,8 @@ async def change_name_cancel(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("Смена имени отменена.")
     # Показываем кнопки главного меню
     keyboard = [
-        [InlineKeyboardButton("Показать очереди", callback_data="show_queues")],
-        [InlineKeyboardButton("Сменить имя", callback_data="change_name")]
+        [InlineKeyboardButton("📋 Показать очереди", callback_data="show_queues")],
+        [InlineKeyboardButton("🔄 Сменить имя", callback_data="change_name")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
@@ -206,42 +206,98 @@ async def change_name_cancel(update: Update, context: CallbackContext) -> int:
 
 # Обработчик начала создания очереди
 async def create_queue_start(update: Update, context: CallbackContext) -> int:
-    await update.message.reply_text("Пожалуйста, введите название очереди:")
+    await update.message.reply_text(
+        "📌 *Создание очереди*\n\n"
+        "🔹 Введите *название очереди*.\n"
+        "❌ Для отмены введите /cancel",
+        parse_mode="Markdown"
+    )
     return QUEUE_NAME
 
 # Обработчик получения названия очереди
 async def create_queue_name(update: Update, context: CallbackContext) -> int:
     context.user_data['queue_name'] = update.message.text
-    await update.message.reply_text("Теперь введите дату начала очереди в формате ДД.ММ.ГГ:")
+    await update.message.reply_text(
+        f"✅ *Название очереди:* `{update.message.text}`\n\n"
+        "📅 Теперь введите *дату начала* в формате _ДД.ММ.ГГ_.\n"
+        "📆 Чтобы выбрать *сегодняшнюю дату*, введите /today.\n"
+        "❌ Для отмены введите /cancel.",
+        parse_mode="Markdown"
+    )
     return QUEUE_DATE
 
 # Обработчик получения даты очереди
 async def create_queue_date(update: Update, context: CallbackContext) -> int:
+    user_input = update.message.text.strip()
+
+    if user_input == "/today":
+        today = datetime.now().strftime("%d.%m.%y")
+        context.user_data['queue_date'] = today
+        await update.message.reply_text(
+            f"✅ *Дата выбрана:* `{today}` 📆\n\n"
+            "🕒 Теперь введите *время начала* в формате _ЧЧ:ММ_.\n"
+            "⏰ Чтобы выбрать *текущее время*, введите /now.\n"
+            "❌ Для отмены введите /cancel.",
+            parse_mode="Markdown"
+        )
+        return QUEUE_TIME
+
     try:
-        datetime.strptime(update.message.text, "%d.%m.%y")
+        datetime.strptime(user_input, "%d.%m.%y")
     except ValueError:
-        await update.message.reply_text("Неверный формат даты. Пожалуйста, используйте ДД.ММ.ГГ.")
+        await update.message.reply_text(
+            "⚠️ *Ошибка:* Неверный формат даты.\n\n"
+            "📅 Пожалуйста, используйте _ДД.ММ.ГГ_ или введите /today для выбора сегодняшней даты.",
+            parse_mode="Markdown"
+        )
         return QUEUE_DATE
 
-    context.user_data['queue_date'] = update.message.text
-    await update.message.reply_text("И, наконец, введите время начала очереди в формате ЧЧ:ММ:")
+    context.user_data['queue_date'] = user_input
+    await update.message.reply_text(
+        "📅 *Дата сохранена!* ✅\n\n"
+        "🕒 Теперь введите *время начала* в формате _ЧЧ:ММ_.\n"
+        "❌ Для отмены введите /cancel.",
+        parse_mode="Markdown"
+    )
     return QUEUE_TIME
 
 # Обработчик получения времени очереди
 async def create_queue_time(update: Update, context: CallbackContext) -> int:
-    try:
-        datetime.strptime(update.message.text, "%H:%M")
-    except ValueError:
-        await update.message.reply_text("Неверный формат времени. Пожалуйста, используйте ЧЧ:ММ.")
-        return QUEUE_TIME
+    user_input = update.message.text.strip()
 
-    context.user_data['queue_time'] = update.message.text
+    if user_input == "/now":
+        now_time = datetime.now().strftime("%H:%M")
+        context.user_data['queue_time'] = now_time
+        await update.message.reply_text(
+            f"✅ *Выбрано текущее время:* `{now_time}` ⏰\n\n"
+            "📍 Теперь выберите *местоположение очереди*:",
+            parse_mode="Markdown"
+        )
+    else:
+        try:
+            datetime.strptime(update.message.text, "%H:%M")
+        except ValueError:
+            await update.message.reply_text(
+                "⚠️ *Ошибка:* Неверный формат времени.\n\n"
+                "⏰ Пожалуйста, используйте _ЧЧ:ММ_ или введите /now для выбора текущего времени.",
+                parse_mode="Markdown"
+            )
+            return QUEUE_TIME
+
+        context.user_data['queue_time'] = update.message.text
+
+    # Кнопки выбора местоположения
     keyboard = [
-        [InlineKeyboardButton("МатФак", callback_data="location_mathfac")],
-        [InlineKeyboardButton("Указать геолокацию", callback_data="location_custom")]
+        [InlineKeyboardButton("🏛 МатФак", callback_data="location_mathfac")],
+        [InlineKeyboardButton("📍 Указать геолокацию", callback_data="location_custom")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Выберите местоположение очереди:", reply_markup=reply_markup)
+
+    await update.message.reply_text(
+        "🌍 *Выберите местоположение очереди:*",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
     return CHOOSE_LOCATION
 
 # Обработчик выбора местоположения очереди
@@ -250,13 +306,16 @@ async def create_queue_location(update: Update, context: CallbackContext) -> int
     await query.answer()
 
     if query.data == "location_mathfac":
-        context.user_data['latitude'] = target_coordinates[0] #Mathfac-> target coordinates
-        context.user_data['longitude'] = target_coordinates[1] #Mathfac-> target coordinates
+        context.user_data['latitude'] = target_coordinates[0]  # Координаты МатФака
+        context.user_data['longitude'] = target_coordinates[1]  
         await create_queue_final(update, context)
         return ConversationHandler.END
 
     elif query.data == "location_custom":
-        await update.message.reply_text("Пожалуйста, отправьте геолокацию для очереди:")
+        await query.message.edit_text(
+            "📍 *Пожалуйста, отправьте вашу геолокацию* для создания очереди:",
+            parse_mode="Markdown"
+        )
         return CHOOSE_LOCATION
 
 async def create_queue_location_custom(update: Update, context: CallbackContext) -> int:
@@ -277,7 +336,10 @@ async def create_queue_final(update: Update, context: CallbackContext) -> None:
     try:
         start_time = datetime.strptime(f"{date_str} {time_str}", "%d.%m.%y %H:%M")
     except ValueError:
-        await update.effective_message.reply_text("Произошла ошибка при создании очереди. Проверьте формат даты и времени.")
+        await update.effective_message.reply_text(
+            "❌ *Ошибка:* Неверный формат даты или времени. Пожалуйста, проверьте ввод.",
+            parse_mode="Markdown"
+        )
         return ConversationHandler.END
 
     # Преобразуем время в GMT+5
@@ -289,11 +351,14 @@ async def create_queue_final(update: Update, context: CallbackContext) -> None:
         cursor.execute("INSERT OR IGNORE INTO queues (queue_name, start_time, latitude, longitude) VALUES (?, ?, ?, ?)",
                        (name, start_time_gmt5.isoformat(), latitude, longitude))
         conn.commit()
-        logger.info(f"Очередь '{name}' сохранена в базе данных с координатами")
+        logger.info(f"Очередь {name} успешно сохранена в базе данных с координатами.")
     except sqlite3.Error as e:
         logger.error(f"Ошибка при сохранении очереди в базе данных: {e}")
 
-    await update.effective_message.reply_text(f"Очередь '{name}' создана и будет доступна с {start_time.strftime('%d.%m.%y %H:%M')}.")
+    await update.effective_message.reply_text(
+        f"✅ Очередь *{name}* успешно создана! 🕒 Она будет доступна с {start_time.strftime('%d.%m.%y %H:%M')}.",
+        parse_mode="Markdown"
+    )
     
     # Автоматическое удаление очереди через 5 часов
     context.job_queue.run_once(delete_queue_job, 5 * 3600, name)  # 5 hours in seconds
@@ -307,7 +372,7 @@ async def delete_queue_job(context: CallbackContext) -> None:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM queues WHERE queue_name = ?", (queue_name,))
         conn.commit()
-        logger.info(f"Очередь '{queue_name}' удалена из базы данных")
+        logger.info(f"Очередь {queue_name} удалена из базы данных")
     except sqlite3.Error as e:
         logger.error(f"Ошибка при удалении очереди из базы данных: {e}")
 
@@ -316,17 +381,17 @@ async def delete_queue_job(context: CallbackContext) -> None:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM queue_users WHERE queue_name = ?", (queue_name,))
         conn.commit()
-        logger.info(f"Записи queue_users для очереди '{queue_name}' удалены")
+        logger.info(f"Записи queue_users для очереди {queue_name} удалены")
     except sqlite3.Error as e:
-        logger.error(f"Ошибка при удалении записей queue_users для очереди '{queue_name}': {e}")
+        logger.error(f"Ошибка при удалении записей queue_users для очереди {queue_name}: {e}")
 
     # Отправляем уведомление администратору об удалении очереди
-    await context.bot.send_message(ADMIN_ID, f"Очередь '{queue_name}' была автоматически удалена.")
-    logger.info(f"Очередь '{queue_name}' была автоматически удалена.")
+    await context.bot.send_message(ADMIN_ID, f"✅ Очередь {queue_name} была автоматически удалена.", parse_mode="Markdown")
+    logger.info(f"Очередь {queue_name} была автоматически удалена.")
 
 # Обработчик отмены создания очереди
 async def create_queue_cancel(update: Update, context: CallbackContext) -> int:
-    await update.message.reply_text("Создание очереди отменено.")
+    await update.message.reply_text("❌ Создание очереди *отменено*.", parse_mode="Markdown")
     return ConversationHandler.END
 
 # Команда /delete_queue — удаление очереди администратором
@@ -335,7 +400,7 @@ async def delete_queue(update: Update, context: CallbackContext) -> None:
     if user.id == ADMIN_ID:
         # Проверяем, что введено название очереди для удаления
         if len(context.args) < 1:
-            await update.message.reply_text("Использование: /delete_queue <название_очереди>")
+            await update.message.reply_text("⚠️ Использование: /delete_queue *<название_очереди>*", parse_mode="Markdown")
             return
 
         # Получаем название очереди
@@ -346,7 +411,7 @@ async def delete_queue(update: Update, context: CallbackContext) -> None:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM queues WHERE queue_name = ?", (queue_name,))
             conn.commit()
-            logger.info(f"Очередь '{queue_name}' удалена из базы данных")
+            logger.info(f"Очередь {queue_name} удалена из базы данных")
         except sqlite3.Error as e:
             logger.error(f"Ошибка при удалении очереди из базы данных: {e}")
 
@@ -355,13 +420,13 @@ async def delete_queue(update: Update, context: CallbackContext) -> None:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM queue_users WHERE queue_name = ?", (queue_name,))
             conn.commit()
-            logger.info(f"Записи queue_users для очереди '{queue_name}' удалены")
+            logger.info(f"Записи queue_users для очереди {queue_name} удалены")
         except sqlite3.Error as e:
-            logger.error(f"Ошибка при удалении записей queue_users для очереди '{queue_name}': {e}")
+            logger.error(f"Ошибка при удалении записей queue_users для очереди {queue_name}: {e}")
 
-        await update.message.reply_text(f"Очередь '{queue_name}' успешно удалена.")
+        await update.message.reply_text(f"✅ Очередь *{queue_name}* успешно удалена.", parse_mode="Markdown")
     else:
-        await update.message.reply_text("Только администратор может удалить очередь.")
+        await update.message.reply_text("⚠️ Только *администратор* может удалить очередь.", parse_mode="Markdown")
 
 # Команда /leave — показать очереди, в которых состоит пользователь, и выйти из выбранной
 async def leave_queue(update: Update, context: CallbackContext) -> None:
@@ -369,14 +434,14 @@ async def leave_queue(update: Update, context: CallbackContext) -> None:
     user_name = user_names.get(user.id, None)
 
     if not user_name:
-        await update.message.reply_text("Для начала введите ваше имя с помощью команды /start.")
+        await update.message.reply_text("📌 Для начала введите ваше *имя* с помощью команды /start.", parse_mode="Markdown")
         return
 
     # Находим очереди, в которых состоит пользователь
     user_queues = await get_user_queues(update, context)
     
     if not user_queues:
-        await update.message.reply_text("Вы не состоите в ни одной очереди.")
+        await update.message.reply_text("❌ Вы не состоите в ни одной очереди.")
         return
 
     # Формируем клавиатуру с кнопками для выхода из очереди
@@ -385,7 +450,7 @@ async def leave_queue(update: Update, context: CallbackContext) -> None:
         for queue_name in user_queues
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Выберите очередь, из которой хотите выйти:", reply_markup=reply_markup)
+    await update.message.reply_text("📋 Выберите очередь, из которой хотите выйти:", reply_markup=reply_markup)
 
 async def get_user_queues(update: Update, context: CallbackContext) -> list[str]:
     user_id = update.message.from_user.id  # Получаем ID пользователя
@@ -416,11 +481,11 @@ async def leave_button(update: Update, context: CallbackContext) -> None:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM queue_users WHERE queue_name = ? AND user_id = ?", (queue_name, user_id))
         conn.commit()
-        logger.info(f"Пользователь {user_id} удален из очереди '{queue_name}' в базе данных")
+        logger.info(f"Пользователь {user_id} удален из очереди {queue_name} в базе данных")
     except sqlite3.Error as e:
         logger.error(f"Ошибка при удалении пользователя из очереди в базе данных: {e}")
     
-    await query.edit_message_text(f"Вы вышли из очереди: {queue_name}.")
+    await query.edit_message_text(f"✅ Вы вышли из очереди: *{queue_name}*.", parse_mode="Markdown")
 
 # Команда /skip — пропуск хода
 async def skip_turn(update: Update, context: CallbackContext) -> None:
@@ -429,14 +494,14 @@ async def skip_turn(update: Update, context: CallbackContext) -> None:
     user_name = user_names.get(user_id, None)
 
     if not user_name:
-        await update.message.reply_text("Для начала введите ваше имя с помощью команды /start.")
+        await update.message.reply_text("📌 Для начала введите ваше *имя* с помощью команды /start.", parse_mode="Markdown")
         return
 
     # Находим очереди, в которых состоит пользователь
     user_queues = await get_user_queues(update, context)
     
     if not user_queues:
-        await update.message.reply_text("Вы не состоите в ни одной очереди.")
+        await update.message.reply_text("❌ Вы не состоите в ни одной очереди.")
         return
 
     # Формируем клавиатуру с кнопками для пропуска хода
@@ -445,7 +510,7 @@ async def skip_turn(update: Update, context: CallbackContext) -> None:
         for queue_name in user_queues
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Выберите очередь, чтобы пропустить свой ход:", reply_markup=reply_markup)
+    await update.message.reply_text("📋 Выберите очередь, чтобы *пропустить* свой ход:", reply_markup=reply_markup, parse_mode="Markdown")
 
 # Обработчик нажатий на кнопки пропуска хода
 async def skip_button(update: Update, context: CallbackContext) -> None:
@@ -462,25 +527,25 @@ async def skip_button(update: Update, context: CallbackContext) -> None:
         if result:
             user_name = result[0]
         else:
-            await query.edit_message_text("Не удалось найти ваше имя.")
+            await query.edit_message_text("❌ Не удалось найти ваше имя.")
             return
 
         # 2. Получаем очередь из базы данных
         queue = await get_queue(queue_name)
         if not queue:
-            await query.edit_message_text("Такой очереди нет.")
+            await query.edit_message_text("❌ Такой очереди нет.")
             return
 
         queue_users = await get_queue_users_name(queue_name) #извлекаем имена
 
         if user_name not in queue_users:
-             await query.edit_message_text("Вы не состоите в этой очереди.")
+             await query.edit_message_text("❌ Вы не состоите в этой очереди.")
              return
 
         #3. Извлекаем queue_users в числовом виде, чтобы можно было работать с очередью
         queue_users_ids = await get_queue_users_ids(queue_name) 
         if not queue_users_ids:
-            await query.edit_message_text("В очереди пока нет участников.")
+            await query.edit_message_text("🔍 В очереди пока нет участников.")
             return
 
         current_index = queue_users_ids.index(user_id)
@@ -497,12 +562,12 @@ async def skip_button(update: Update, context: CallbackContext) -> None:
             #Нужно извлекать не из user_names, a из БД, чтобы было актуальное инфо
             user2_name= await get_user_name(user2_id)
             if user2_name:
-               await query.edit_message_text(f"Вы пропустили свой ход. Ваш ход теперь после  {user2_name}.")
+               await query.edit_message_text(f"✅ Вы пропустили свой ход. Ваш ход теперь после *{user2_name}*.", parse_mode="Markdown")
             else: 
-               await query.edit_message_text(f"Вы пропустили свой ход. Cледующий участник проинформирован")
+               await query.edit_message_text(f"✅ Вы пропустили свой ход. Cледующий участник проинформирован")
 
         else:
-            await query.edit_message_text("Вы находитесь в конце очереди и не можете пропустить ход.")
+            await query.edit_message_text("❌ Вы находитесь в конце очереди и не можете пропустить ход.")
             return
 
 
@@ -545,7 +610,7 @@ async def swap_queue_users(queue_name:str, user1_id:int, user2_id:int):
         
         
         conn.commit()
-        logger.info(f"Пользователи с id {user1_id} и {user2_id}  в очереди '{queue_name}' успешно поменялись местами ")
+        logger.info(f"Пользователи с id {user1_id} и {user2_id}  в очереди {queue_name} успешно поменялись местами ")
     except sqlite3.Error as e:
         logger.error(f"Ошибка при обмене пользователями: {e}")
 
@@ -555,14 +620,14 @@ async def queue_info(update: Update, context: CallbackContext) -> None:
     user_name = user_names.get(user.id, None)
 
     if not user_name:
-        await update.message.reply_text("Для начала введите ваше имя с помощью команды /start.")
+        await update.message.reply_text("📌 Для начала введите ваше *имя* с помощью команды /start.", parse_mode="Markdown")
         return
 
     # Находим очереди, в которых состоит пользователь
     user_queues = await get_user_queues(update,context)
     
     if not user_queues:
-        await update.message.reply_text("Вы не состоите в ни одной очереди.")
+        await update.message.reply_text("❌ Вы не состоите в ни одной очереди.")
         return
 
     # Формируем клавиатуру с кнопками для просмотра информации о очереди
@@ -571,7 +636,7 @@ async def queue_info(update: Update, context: CallbackContext) -> None:
         for queue_name in user_queues
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Выберите очередь для просмотра списка участников:", reply_markup=reply_markup)
+    await update.message.reply_text("📋 Выберите очередь для просмотра списка участников:", reply_markup=reply_markup)
 
 # Обработчик нажатий на кнопки просмотра информации о очереди
 async def queue_info_button(update: Update, context: CallbackContext) -> None:
@@ -585,7 +650,7 @@ async def queue_info_button(update: Update, context: CallbackContext) -> None:
      # Получаем список участников очереди из базы данных
     users_list = await get_queue_users_name(queue_name)
     if not users_list:
-        await query.edit_message_text("В очереди пока нет участников.")
+        await query.edit_message_text("🔍 В очереди пока нет участников.")
         return
 
     # Формируем сообщение со списком участников
@@ -593,14 +658,14 @@ async def queue_info_button(update: Update, context: CallbackContext) -> None:
     queue_users_ids = await get_queue_users_ids(queue_name)
 
     for i, user_id in enumerate(queue_users_ids):
-        user_name = await get_user_name(user_id) #Исправлено
+        user_name = await get_user_name(user_id)
         if user_name:
            users_text += f"{i+1}. {user_name}\n"
         else:
-           users_text += f"{i+1}. (Пользователь не найден)\n" #Для дебага
+           users_text += f"{i+1}. (Пользователь не найден)\n"
            
 
-    await query.edit_message_text(f"Список участников очереди {queue_name}:\n{users_text}")
+    await query.edit_message_text(f"📋 Список участников очереди {queue_name}:\n{users_text}")
 
 #Функция для получения имен пользователей
 async def get_queue_users_name(queue_name: str) -> list[str]:
@@ -642,9 +707,9 @@ async def show_queues(update: Update, context: CallbackContext) -> None:
         for queue in queues_list:  # Iterate over the queues
             keyboard.append([InlineKeyboardButton(queue['queue_name'], callback_data=f"join_queue_{queue['queue_name']}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.effective_message.reply_text("Выберите очередь для записи:", reply_markup=reply_markup)
+        await update.effective_message.reply_text("📋 Выберите очередь для записи:", reply_markup=reply_markup)
     else:
-        await update.effective_message.reply_text("Нет доступных очередей.")
+        await update.effective_message.reply_text("❌ Нет доступных очередей.")
 
 async def get_all_queues() -> list[dict]:
     try:
@@ -677,19 +742,19 @@ async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
         logger.info(f"Получены данные от Web App: {data}")  # Логируем входные данные
 
         if not lat or not lon:
-            await update.message.reply_text("Ошибка: не удалось получить координаты.")
+            await update.message.reply_text("❌ Ошибка: не удалось получить координаты.")
             return
 
         queue_name = context.user_data.get("queue_name")
         user_id = context.user_data.get("user_id")
 
         if not queue_name:
-            await update.message.reply_text("Ошибка: не найдена очередь.")
+            await update.message.reply_text("❌ Ошибка: не найдена очередь.")
             return
 
         queue = await get_queue(queue_name)
         if not queue:
-            await update.message.reply_text("Ошибка: очередь не найдена.")
+            await update.message.reply_text("❌ Ошибка: очередь не найдена.")
             return
 
         target_coordinates = (queue["latitude"], queue["longitude"])
@@ -702,17 +767,17 @@ async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
                 cursor = conn.cursor()
                 cursor.execute("INSERT OR IGNORE INTO queue_users (queue_name, user_id, join_time) VALUES (?, ?, ?)", (queue_name, user_id, join_time))
                 conn.commit()
-                logger.info(f"Пользователь {user_id} добавлен в очередь '{queue_name}'")
+                logger.info(f"Пользователь {user_id} добавлен в очередь {queue_name}")
             except sqlite3.Error as e:
                 logger.error(f"Ошибка при добавлении пользователя: {e}")
 
-            await update.message.reply_text(f"Вы записаны в очередь '{queue_name}'.")
+            await update.message.reply_text(f"✅ Вы записаны в очередь {queue_name}.")
         else:
-            await update.message.reply_text("Слишком далеко для записи в очередь.")
+            await update.message.reply_text("❌ Слишком далеко для записи в очередь.")
 
     except Exception as e:
         logger.error(f"Ошибка в обработке Web App данных: {e}")
-        await update.message.reply_text("Произошла ошибка при обработке геолокации.")
+        await update.message.reply_text("❌ Произошла ошибка при обработке геолокации.")
 
 
 async def ask_location(update: Update, context: CallbackContext) -> None:
@@ -727,13 +792,13 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
     # 1. Проверить, что пользователь еще не записан
     is_in_queue = await is_user_in_queue(queue_name, user_id)
     if is_in_queue:
-        await query.edit_message_text("Вы уже записаны в эту очередь.")
+        await query.edit_message_text("✅ Вы уже записаны в эту очередь.")
         return
     
     # 2. Получаем очередь и время из базы данных
     queue = await get_queue(queue_name)
     if not queue:
-        await update.effective_message.reply_text("Ошибка: очередь не найдена.")
+        await update.effective_message.reply_text("❌ Ошибка: очередь не найдена.")
         return
 
     # 3. Проверяем наступило ли время для записи
@@ -741,7 +806,7 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
     now = datetime.now(GMT_PLUS_5)
 
     if queue_start_time > now:
-        await query.edit_message_text(f"Запись на эту очередь начнется {queue_start_time.strftime('%d.%m.%Y %H:%M')}")
+        await query.edit_message_text(f"⚠️ Запись на эту очередь начнется *{queue_start_time.strftime('%d.%m.%Y %H:%M')}*⏰", parse_mode="Markdown")
         return
 
     # Сохраняем имя очереди, чтобы было ясно, что локацию ждут только для ask_location
@@ -751,16 +816,17 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
     location_request_id = str(uuid.uuid4())
     context.user_data["location_request_id"] = location_request_id
 
-    # Создаем кнопку **ReplyKeyboardMarkup**, а не Inline
+    # Создаем кнопку **ReplyKeyboardMarkup**
     keyboard = [
-        [KeyboardButton("Отправить геолокацию", web_app=WebAppInfo(url="https://www.phygitaltyumen.ru/getlocation/"))]
+        [KeyboardButton("Отправить геолокацию", web_app=WebAppInfo(url=GET_LOCATION_URL))]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
     # Отправляем сообщение с кнопкой
     sent_message = await query.message.reply_text(
-        f"Для записи в очередь '{queue_name}', нажмите кнопку и отправьте вашу геолокацию:",
-        reply_markup=reply_markup
+        f"📌 Для записи в очередь *{queue_name}*, нажмите *кнопку* и отправьте вашу геолокацию📍:",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
     )
 
     # Сохраняем ID сообщения
@@ -781,50 +847,6 @@ async def get_queue(queue_name: str) -> dict | None:
         logger.error(f"Ошибка при получении очереди из базы данных: {e}")
         return None
 
-# async def handle_location(update: Update, context: CallbackContext) -> None:
-#     """Обрабатываем отправленную пользователем геолокацию, разрешая только данные с кнопки."""
-#     user = update.message.from_user
-#     location = update.message.location
-#     queue_name = context.user_data.get('queue_name')
-#     user_id = context.user_data.get('user_id')
-#     expecting_location = context.user_data.get("expecting_location_for")  # Ожидаем ли геолокацию
-
-#     print(update.message)
-
-#     # --- Дальнейшая обработка ---
-#     if not expecting_location:
-#         await update.message.reply_text("Не понимаю ваш запрос")
-#         return
-
-#     if not queue_name:
-#         await update.message.reply_text("Ошибка: название очереди не найдено.")
-#         return
-
-#     # Получаем данные из базы и проверяем расстояние
-#     queue = await get_queue(queue_name)
-#     if not queue:
-#         await update.effective_message.reply_text("Ошибка: очередь не найдена.")
-#         return
-
-#     target_coordinates = (queue['latitude'], queue['longitude'])
-#     user_coord = (location.latitude, location.longitude)
-#     distance = geodesic(user_coord, target_coordinates).meters
-
-#     if distance <= max_distance:
-#         # Добавляем в базу
-#         try:
-#             join_time = datetime.now(GMT_PLUS_5).isoformat()
-#             cursor = conn.cursor()
-#             cursor.execute("INSERT OR IGNORE INTO queue_users (queue_name, user_id, join_time) VALUES (?, ?, ?)", (queue_name, user_id, join_time))
-#             conn.commit()
-#             logger.info(f"Пользователь {user_id} добавлен в очередь '{queue_name}'")
-#         except sqlite3.Error as e:
-#             logger.error(f"Ошибка при добавлении пользователя: {e}")
-
-#         await update.message.reply_text(f"Вы записаны в очередь '{queue_name}'.")
-#     else:
-#         await update.message.reply_text("Слишком далеко для записи в очередь.")
-
 async def is_user_in_queue(queue_name: str, user_id: int) -> bool:
     try:
         cursor = conn.cursor()
@@ -838,7 +860,7 @@ async def is_user_in_queue(queue_name: str, user_id: int) -> bool:
 # Обработчик для неизвестных запросов CallbackQuery
 async def unknown(update: Update, context: CallbackContext) -> None:
     await update.callback_query.answer()
-    await update.callback_query.message.reply_text("Я не понимаю этот запрос!")
+    await update.callback_query.message.reply_text("❌ Я не понимаю этот запрос!")
 
 # Функция для вывода списка доступных команд
 async def help_command(update: Update, context: CallbackContext) -> None:
@@ -917,8 +939,8 @@ def main():
         entry_points=[CommandHandler("create_queue", create_queue_start)],
         states={
             QUEUE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_queue_name)],
-            QUEUE_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_queue_date)],
-            QUEUE_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_queue_time)],
+            QUEUE_DATE: [MessageHandler(filters.TEXT, create_queue_date)],
+            QUEUE_TIME: [MessageHandler(filters.TEXT, create_queue_time)],
             CHOOSE_LOCATION: [
                  CallbackQueryHandler(create_queue_location, pattern="^location_(mathfac|custom)$"),
                  MessageHandler(filters.LOCATION, create_queue_location_custom),
@@ -951,7 +973,6 @@ def main():
     application.add_handler(CommandHandler("queue_info", queue_info))
     application.add_handler(CommandHandler("show_queues", show_queues))
     application.add_handler(CommandHandler("help", help_command))
-
     # Обработчики сообщений
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, set_name))
     application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
