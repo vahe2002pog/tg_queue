@@ -1,11 +1,10 @@
 import logging
 import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, BotCommand, LinkPreviewOptions, WebAppInfo
-from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters, ApplicationBuilder, Defaults, ConversationHandler, JobQueue
+from telegram.ext import Application, ContextTypes, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters, ApplicationBuilder, Defaults, ConversationHandler, JobQueue
 from datetime import datetime, timedelta, timezone
 from config import TOKEN, ADMIN_ID, MF_COORDINATES, GET_LOCATION_URL
 from geopy.distance import geodesic
-from telegram import WebAppInfo
 import asyncio
 import httpx
 import sqlite3
@@ -19,6 +18,8 @@ max_distance = 250
 
 # Подключение к базе данных SQLite
 DATABASE_NAME = 'queue_bot.db'
+
+JOIN_QUEUE_PAYLOAD = "join_"
 
 def create_connection():
     conn = None
@@ -40,21 +41,22 @@ def create_tables(conn):
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS queues (
-                queue_name TEXT PRIMARY KEY,
+                queue_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                queue_name TEXT NOT NULL,
                 start_time TEXT,
                 latitude REAL,
                 longitude REAL
-            )
+            );
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS queue_users (
-                queue_name TEXT,
+                queue_id INTEGER,
                 user_id INTEGER,
-                join_time TEXT,  -- Добавлено время присоединения
-                FOREIGN KEY (queue_name) REFERENCES queues(queue_name),
+                join_time TEXT,
+                FOREIGN KEY (queue_id) REFERENCES queues(queue_id),
                 FOREIGN KEY (user_id) REFERENCES users(user_id),
-                PRIMARY KEY (queue_name, user_id)
-            )
+                PRIMARY KEY (queue_id, user_id)
+            );
         """)
         conn.commit()
         logger.info("Таблицы созданы успешно")
@@ -87,7 +89,8 @@ async def send_notification(user_id: int, message: str, context: CallbackContext
         logger.error(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
 
 # Команда /start — запросить имя пользователя
-async def start(update: Update, context: CallbackContext) -> None:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработка команды /start с deep-linking."""
     user = update.message.from_user
     user_id = user.id
 
@@ -355,14 +358,84 @@ async def create_queue_final(update: Update, context: CallbackContext) -> None:
     except sqlite3.Error as e:
         logger.error(f"Ошибка при сохранении очереди в базе данных: {e}")
 
-    await update.effective_message.reply_text(
-        f"✅ Очередь *{name}* успешно создана! 🕒 Она будет доступна с {start_time.strftime('%d.%m.%y %H:%M')}.",
-        parse_mode="Markdown"
+    # Отправляем локацию (карты)
+    location_message = await update.effective_message.reply_location(
+        latitude=latitude,
+        longitude=longitude,
+        reply_markup=None
     )
-    
-    # Автоматическое удаление очереди через 5 часов
-    context.job_queue.run_once(delete_queue_job, 5 * 3600, name)  # 5 hours in seconds
 
+    #Создаем deeplink
+    deeplink = f"https://t.me/{context.bot.username}?start=join_{name}"
+    # Создаем кнопку для присоединения (теперь это URL-кнопка)
+    keyboard = [
+        [InlineKeyboardButton("📌 Присоединиться к очереди", url=deeplink)]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # Отправляем сообщение с информацией и кнопкой
+    queue_message = await update.effective_message.reply_text(
+        f"✅ Очередь *{name}* успешно создана! 🕒\n"
+        f"📆 Дата: *{start_time.strftime('%d.%m.%y')}*\n"
+        f"⏰ Время: *{start_time.strftime('%H:%M')}*\n\n"
+        f"📍 *Локация:* (смотрите выше)\n\n"
+        f"➡ *Нажмите кнопку, чтобы присоединиться!*",
+        parse_mode="Markdown",
+        reply_markup=reply_markup,
+        link_preview_options=LinkPreviewOptions(is_disabled=True) #Отключаем предпросмотр ссылки
+    )
+
+    # Сохраняем ID сообщений (если нужно для удаления)
+    context.user_data['queue_message_id'] = queue_message.message_id
+    context.user_data['location_message_id'] = location_message.message_id
+
+    # Автоматическое удаление очереди через 5 часов
+    context.job_queue.run_once(delete_queue_job, 5 * 3600, name)  # 5 hours in секундах
+    context.user_data.pop('queue_name', None)
+
+    return ConversationHandler.END
+
+async def handle_deeplink(update: Update, context: CallbackContext) -> None:
+    """Handles deeplink when user starts the bot."""
+    message_text = update.message.text
+    logger.info(f"Получено сообщение: {update.message.text}")
+    # Проверяем, что сообщение начинается с /start
+    if not message_text.startswith("/start"):
+        return  # Игнорируем сообщения, которые не начинаются с /start
+
+    # Обрабатываем deeplink
+    if len(message_text.split()) > 1:
+        payload = message_text.split()[1]
+        if payload.startswith("join_"):
+            queue_name = payload[5:]  # Extract queue name
+            user_id = update.effective_user.id
+
+            # Проверяем, что очередь существует
+            queue = await get_queue(queue_name)
+            if not queue:
+                await update.message.reply_text("❌ Очередь не найдена.")
+                return
+
+            # Проверяем, что пользователь уже ввёл имя
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM users WHERE user_id = ?", (user_id,))
+            result = cursor.fetchone()
+
+            if not result:
+                # Если имя не введено, предлагаем ввести имя
+                await update.message.reply_text(
+                    "📌 Для начала введите ваше *имя* с помощью команды /start.",
+                    parse_mode="Markdown"
+                )
+                return
+
+            # Сохраняем данные очереди в контекст
+            context.user_data['queue_name'] = queue_name
+            context.user_data['user_id'] = user_id
+
+            # Передаем управление в ask_location
+            await ask_location(update, context)
+            
 # Функция для автоматического удаления очереди
 async def delete_queue_job(context: CallbackContext) -> None:
     queue_name = context.job.data
@@ -812,9 +885,9 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
     # Сохраняем имя очереди, чтобы было ясно, что локацию ждут только для ask_location
     context.user_data["expecting_location_for"] = queue_name
 
-    # Генерируем location_request_id
-    location_request_id = str(uuid.uuid4())
-    context.user_data["location_request_id"] = location_request_id
+    # # Генерируем location_request_id
+    # location_request_id = str(uuid.uuid4())
+    # context.user_data["location_request_id"] = location_request_id
 
     # Создаем кнопку **ReplyKeyboardMarkup**
     keyboard = [
@@ -966,6 +1039,7 @@ def main():
     application.add_handler(CallbackQueryHandler(main_menu_buttons, pattern="^(show_queues|change_name)$"))
 
     # Обработчики команд
+    application.add_handler(CommandHandler("start", handle_deeplink, filters.Regex(JOIN_QUEUE_PAYLOAD)))
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("delete_queue", delete_queue))
     application.add_handler(CommandHandler("leave", leave_queue))
@@ -973,7 +1047,9 @@ def main():
     application.add_handler(CommandHandler("queue_info", queue_info))
     application.add_handler(CommandHandler("show_queues", show_queues))
     application.add_handler(CommandHandler("help", help_command))
+
     # Обработчики сообщений
+    # application.add_handler(MessageHandler(filters.TEXT, handle_deeplink))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, set_name))
     application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
 
