@@ -399,7 +399,11 @@ async def create_queue_final(update: Update, context: CallbackContext) -> None:
 
     # Автоматическое удаление очереди через 5 часов
     #context.job_queue.run_once(delete_queue_job, 5 * 3600, name)  # 5 hours in секундах
-    context.job_queue.run_once(delete_queue_job, 5 * 3600, queue_id)  # 5 hours in секундах
+    time_until_deletion = (start_time_gmt5 + timedelta(hours=5)) - datetime.now(GMT_PLUS_5)
+    seconds_until_deletion = max(time_until_deletion.total_seconds(), 0)  # Не даем отрицательные значения
+
+    # Планируем удаление
+    context.job_queue.run_once(delete_queue_job, seconds_until_deletion, queue_id)
     context.user_data.pop('queue_name', None)
 
     return ConversationHandler.END
