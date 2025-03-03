@@ -690,7 +690,6 @@ async def skip_button(update: Update, context: CallbackContext) -> None:
             return
 
         # 2. Получаем очередь из базы данных
-        #queue = await get_queue(queue_name)
         queue = await get_queue_by_id(queue_id)
 
         if not queue:
@@ -724,13 +723,15 @@ async def skip_button(update: Update, context: CallbackContext) -> None:
             user2_name= await get_user_name(user2_id)
             if user2_name:
                await query.edit_message_text(f"✅ Вы пропустили свой ход. Ваш ход теперь после *{user2_name}*.", parse_mode="Markdown")
+               
+               # Отправляем уведомление второму участнику
+               await context.bot.send_message(chat_id=user2_id, text=f"ℹ️ Ваш ход в очереди '{queue_name}' был изменен. Теперь вы перед *{user_name}*.", parse_mode="Markdown")
         else:
             await query.edit_message_text("❌ Вы находитесь в конце очереди и не можете пропустить ход.")
             return
 
-
     except Exception as e:
-        logger.error(f"Произошла ошибка: {e}")
+        await query.edit_message_text(f"❌ Произошла ошибка: {str(e)}")
 
 async def get_queue_users_ids(queue_id: int) -> list[int]:
     try:
@@ -893,77 +894,58 @@ async def get_all_queues() -> list[dict]:
     except sqlite3.Error as e:
         logger.error(f"Ошибка при получении списка очередей из базы данных: {e}")
         return []
-async def skip_button(update: Update, context: CallbackContext) -> None:
-    query = update.callback_query
-    await query.answer()  # Подтверждаем нажатие кнопки
-    queue_id = int(query.data.split("_")[1])  # Извлекаем queue_id из callback_data
-    user_id = update.effective_user.id
 
-    # Получаем название очереди по ID
-    queue_name = await get_queue_name_by_id(queue_id)
-    if not queue_name:
-        await query.edit_message_text("❌ Ошибка: Не удалось получить имя очереди.")
-        return
-    
+async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
+    """Обрабатываем данные с Web App (геолокацию)."""
     try:
-        # 1. Получаем имя из БД
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM users WHERE user_id = ?", (user_id,))
-        result = cursor.fetchone()
-        if result:
-            user_name = result[0]
-        else:
-            await query.edit_message_text("❌ Не удалось найти ваше имя.")
+        data = json.loads(update.message.web_app_data.data)
+        logger.info(f"Получены данные от Web App: {data}")
+        lat = data.get("lat")
+        lon = data.get("lon")
+
+        logger.info(f"Получены данные от Web App: {data}")  # Логируем входные данные
+
+        if not lat or not lon:
+            await update.message.reply_text("❌ Ошибка: не удалось получить координаты.")
             return
 
-        # 2. Получаем очередь из базы данных
+        #queue_name = context.user_data.get("queue_name")
+        queue_id = context.user_data.get("queue_id")
+        user_id = context.user_data.get("user_id")
+
+        if not queue_id:
+            await update.message.reply_text("❌ Ошибка: не найдена очередь.")
+            return
+
+        #queue = await get_queue(queue_name)
         queue = await get_queue_by_id(queue_id)
         if not queue:
-            await query.edit_message_text("❌ Такой очереди нет.")
+            await update.message.reply_text("❌ Ошибка: очередь не найдена.")
             return
 
-        queue_users = await get_queue_users_name(queue_id)  # Извлекаем имена
+        target_coordinates = (queue["latitude"], queue["longitude"])
+        user_coord = (lat, lon)
+        distance = geodesic(user_coord, target_coordinates).meters
 
-        if user_name not in queue_users:
-            await query.edit_message_text("❌ Вы не состоите в этой очереди.")
-            return
+        if distance <= max_distance:
+            try:
+                join_time = datetime.now(GMT_PLUS_5).isoformat()
+                cursor = conn.cursor()
+                #cursor.execute("INSERT OR IGNORE INTO queue_users (queue_name, user_id, join_time) VALUES (?, ?, ?)", (queue_name, user_id, join_time))
+                cursor.execute("INSERT OR IGNORE INTO queue_users (queue_id, user_id, join_time) VALUES (?, ?, ?)", (queue_id, user_id, join_time))
+                conn.commit()
+                logger.info(f"Пользователь {user_id} добавлен в очередь {queue['queue_name']} (ID {queue_id})")
+            except sqlite3.Error as e:
+                logger.error(f"Ошибка при добавлении пользователя: {e}")
 
-        # 3. Извлекаем queue_users в числовом виде, чтобы можно было работать с очередью
-        queue_users_ids = await get_queue_users_ids(queue_id)
-        if not queue_users_ids:
-            await query.edit_message_text("🔍 В очереди пока нет участников.")
-            return
-
-        current_index = queue_users_ids.index(user_id)
-        
-        if current_index + 1 < len(queue_users_ids):
-            # Меняем местами текущего пользователя и следующего
-            user1_id = queue_users_ids[current_index]
-            user2_id = queue_users_ids[current_index + 1]
-
-            await swap_queue_users(queue_id, user1_id, user2_id)
-
-            # Добавлена проверка на наличие второго пользователя, а также извлечение ника
-            user2_name = await get_user_name(user2_id)
-            if user2_name:
-                await query.edit_message_text(
-                    f"✅ Вы пропустили свой ход. Ваш ход теперь после *{user2_name}*.", 
-                    parse_mode="Markdown"
-                )
-
-                # Отправляем уведомление второму участнику
-                await context.bot.send_message(
-                    chat_id=user2_id,
-                    text=f"ℹ️ В очереди '{queue_name}' пользователь *{user_name}* пропустил свой ход. Теперь вы перед ним.",
-                    parse_mode="Markdown"
-                )
+            await update.message.reply_text(f"✅ Вы записаны в очередь {queue['queue_name']}.")
         else:
-            await query.edit_message_text("❌ Вы находитесь в конце очереди и не можете пропустить ход.")
-            return
+            await update.message.reply_text("❌ Слишком далеко для записи в очередь.")
 
     except Exception as e:
-        await query.edit_message_text(f"❌ Произошла ошибка: {str(e)}")
-        
+        logger.error(f"Ошибка в обработке Web App данных: {e}")
+        await update.message.reply_text("❌ Произошла ошибка при обработке геолокации.")
+
 async def ask_location_from_message(message: Message, context: CallbackContext) -> None:
     """Запрашивает геолокацию пользователя, если deeplink был вызван командой /start."""
 
