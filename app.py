@@ -1,6 +1,6 @@
 import logging
 import json
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, BotCommand, LinkPreviewOptions, WebAppInfo, Message
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, BotCommand, LinkPreviewOptions, WebAppInfo, Message, ReplyKeyboardRemove
 from telegram.ext import Application, ContextTypes, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters, ApplicationBuilder, Defaults, ConversationHandler, JobQueue
 from datetime import datetime, timedelta, timezone
 from config import TOKEN, ADMIN_ID, MF_COORDINATES, GET_LOCATION_URL
@@ -902,7 +902,7 @@ async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
         logger.info(f"Получены данные от Web App: {data}")  # Логируем входные данные
 
         if not lat or not lon:
-            await update.message.reply_text("❌ Ошибка: не удалось получить координаты.")
+            await update.message.reply_text("❌ Ошибка: не удалось получить координаты.", reply_markup=ReplyKeyboardRemove()) # Удаляем клавиатуру при ошибке
             return
 
         #queue_name = context.user_data.get("queue_name")
@@ -910,13 +910,13 @@ async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
         user_id = context.user_data.get("user_id")
 
         if not queue_id:
-            await update.message.reply_text("❌ Ошибка: не найдена очередь.")
+            await update.message.reply_text("❌ Ошибка: не найдена очередь.", reply_markup=ReplyKeyboardRemove()) # Удаляем клавиатуру при ошибке
             return
 
         #queue = await get_queue(queue_name)
         queue = await get_queue_by_id(queue_id)
         if not queue:
-            await update.message.reply_text("❌ Ошибка: очередь не найдена.")
+            await update.message.reply_text("❌ Ошибка: очередь не найдена.", reply_markup=ReplyKeyboardRemove()) # Удаляем клавиатуру при ошибке
             return
 
         target_coordinates = (queue["latitude"], queue["longitude"])
@@ -933,14 +933,16 @@ async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
                 logger.info(f"Пользователь {user_id} добавлен в очередь {queue['queue_name']} (ID {queue_id})")
             except sqlite3.Error as e:
                 logger.error(f"Ошибка при добавлении пользователя: {e}")
+                await update.message.reply_text("❌ Произошла ошибка при записи в очередь.", reply_markup=ReplyKeyboardRemove()) # Удаляем клавиатуру при ошибке
+                return
 
-            await update.message.reply_text(f"✅ Вы записаны в очередь {queue['queue_name']}.")
+            await update.message.reply_text(f"✅ Вы записаны в очередь {queue['queue_name']}.", reply_markup=ReplyKeyboardRemove()) # Удаляем клавиатуру после успешной записи
         else:
-            await update.message.reply_text("❌ Слишком далеко для записи в очередь.")
+            await update.message.reply_text("❌ Слишком далеко для записи в очередь.", reply_markup=ReplyKeyboardRemove()) # Удаляем клавиатуру
 
     except Exception as e:
         logger.error(f"Ошибка в обработке Web App данных: {e}")
-        await update.message.reply_text("❌ Произошла ошибка при обработке геолокации.")
+        await update.message.reply_text("❌ Произошла ошибка при обработке геолокации.", reply_markup=ReplyKeyboardRemove())
 
 async def ask_location_from_message(message: Message, context: CallbackContext) -> None:
     """Запрашивает геолокацию пользователя, если deeplink был вызван командой /start."""
@@ -985,7 +987,7 @@ async def ask_location_from_message(message: Message, context: CallbackContext) 
 
     # Создаем кнопку **ReplyKeyboardMarkup**
     keyboard = [
-        [KeyboardButton("Отправить геолокацию", web_app=WebAppInfo(url=GET_LOCATION_URL))]
+        [KeyboardButton("📍 Отправить геолокацию", web_app=WebAppInfo(url=GET_LOCATION_URL))]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
