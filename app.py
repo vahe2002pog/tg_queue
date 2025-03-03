@@ -902,7 +902,7 @@ async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
         logger.info(f"Получены данные от Web App: {data}")  # Логируем входные данные
 
         if not lat or not lon:
-            await update.message.reply_text("❌ Ошибка: не удалось получить координаты.", reply_markup=ReplyKeyboardRemove()) # Удаляем клавиатуру при ошибке
+            await update.message.reply_text("❌ Ошибка: не удалось получить координаты.", reply_markup=ReplyKeyboardRemove()) 
             return
 
         #queue_name = context.user_data.get("queue_name")
@@ -910,13 +910,13 @@ async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
         user_id = context.user_data.get("user_id")
 
         if not queue_id:
-            await update.message.reply_text("❌ Ошибка: не найдена очередь.", reply_markup=ReplyKeyboardRemove()) # Удаляем клавиатуру при ошибке
+            await update.message.reply_text("❌ Ошибка: не найдена очередь.", reply_markup=ReplyKeyboardRemove())
             return
 
         #queue = await get_queue(queue_name)
         queue = await get_queue_by_id(queue_id)
         if not queue:
-            await update.message.reply_text("❌ Ошибка: очередь не найдена.", reply_markup=ReplyKeyboardRemove()) # Удаляем клавиатуру при ошибке
+            await update.message.reply_text("❌ Ошибка: очередь не найдена.", reply_markup=ReplyKeyboardRemove())
             return
 
         target_coordinates = (queue["latitude"], queue["longitude"])
@@ -933,12 +933,12 @@ async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
                 logger.info(f"Пользователь {user_id} добавлен в очередь {queue['queue_name']} (ID {queue_id})")
             except sqlite3.Error as e:
                 logger.error(f"Ошибка при добавлении пользователя: {e}")
-                await update.message.reply_text("❌ Произошла ошибка при записи в очередь.", reply_markup=ReplyKeyboardRemove()) # Удаляем клавиатуру при ошибке
+                await update.message.reply_text("❌ Произошла ошибка при записи в очередь.", reply_markup=ReplyKeyboardRemove())
                 return
 
-            await update.message.reply_text(f"✅ Вы записаны в очередь {queue['queue_name']}.", reply_markup=ReplyKeyboardRemove()) # Удаляем клавиатуру после успешной записи
+            await update.message.reply_text(f"✅ Вы записаны в очередь {queue['queue_name']}.", reply_markup=ReplyKeyboardRemove())
         else:
-            await update.message.reply_text("❌ Слишком далеко для записи в очередь.", reply_markup=ReplyKeyboardRemove()) # Удаляем клавиатуру
+            await update.message.reply_text("❌ Слишком далеко для записи в очередь.", reply_markup=ReplyKeyboardRemove())
 
     except Exception as e:
         logger.error(f"Ошибка в обработке Web App данных: {e}")
@@ -1179,7 +1179,7 @@ async def get_queue_name_by_id(queue_id: int) -> str | None:
 async def cancel(update: Update, context: CallbackContext) -> int:
     """Отменяет текущую команду и очищает пользовательские данные."""
     context.user_data.clear()  # Очищаем все временные данные пользователя
-    await update.message.reply_text("❌ Действие отменено. Вы можете начать заново.", parse_mode="Markdown")
+    await update.message.reply_text("❌ Действие отменено. Вы можете начать заново.", reply_markup=ReplyKeyboardRemove(), parse_mode="Markdown")
     return ConversationHandler.END
 
 
