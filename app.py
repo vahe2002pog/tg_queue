@@ -196,24 +196,11 @@ async def change_name(update: Update, context: CallbackContext) -> int:
 
     return ConversationHandler.END # End conversation
 
-# Обработчик отмены смены имени
-async def change_name_cancel(update: Update, context: CallbackContext) -> int:
-    await update.message.reply_text("Смена имени отменена.")
-    # Показываем кнопки главного меню
-    keyboard = [
-        [InlineKeyboardButton("📋 Показать очереди", callback_data="show_queues")],
-        [InlineKeyboardButton("🔄 Сменить имя", callback_data="change_name")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
-    return ConversationHandler.END
-
 # Обработчик начала создания очереди
 async def create_queue_start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(
         "📌 *Создание очереди*\n\n"
         "🔹 Введите *название очереди*.\n"
-        "❌ Для отмены введите /cancel",
         parse_mode="Markdown"
     )
     return QUEUE_NAME
@@ -225,7 +212,6 @@ async def create_queue_name(update: Update, context: CallbackContext) -> int:
         f"✅ *Название очереди:* `{update.message.text}`\n\n"
         "📅 Теперь введите *дату начала* в формате _ДД.ММ.ГГ_.\n"
         "📆 Чтобы выбрать *сегодняшнюю дату*, введите /today.\n"
-        "❌ Для отмены введите /cancel.",
         parse_mode="Markdown"
     )
     return QUEUE_DATE
@@ -241,7 +227,6 @@ async def create_queue_date(update: Update, context: CallbackContext) -> int:
             f"✅ *Дата выбрана:* `{today}` 📆\n\n"
             "🕒 Теперь введите *время начала* в формате _ЧЧ:ММ_.\n"
             "⏰ Чтобы выбрать *текущее время*, введите /now.\n"
-            "❌ Для отмены введите /cancel.",
             parse_mode="Markdown"
         )
         return QUEUE_TIME
@@ -260,7 +245,7 @@ async def create_queue_date(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(
         "📅 *Дата сохранена!* ✅\n\n"
         "🕒 Теперь введите *время начала* в формате _ЧЧ:ММ_.\n"
-        "❌ Для отмены введите /cancel.",
+        "⏰ Чтобы выбрать *текущее время*, введите /now.\n"
         parse_mode="Markdown"
     )
     return QUEUE_TIME
@@ -484,11 +469,6 @@ async def delete_queue_job(context: CallbackContext) -> None:
     # Отправляем уведомление администратору об удалении очереди
     await context.bot.send_message(ADMIN_ID, f"✅ Очередь {queue_name} (ID {queue_id}) была автоматически удалена.", parse_mode="Markdown")
     logger.info(f"Очередь {queue_name} (ID {queue_id}) была автоматически удалена.")
-
-# Обработчик отмены создания очереди
-async def create_queue_cancel(update: Update, context: CallbackContext) -> int:
-    await update.message.reply_text("❌ Создание очереди *отменено*.", parse_mode="Markdown")
-    return ConversationHandler.END
 
 # Команда /delete_queue — удаление очереди администратором
 async def delete_queue_start(update: Update, context: CallbackContext) -> None:
@@ -1113,6 +1093,7 @@ async def unknown(update: Update, context: CallbackContext) -> None:
 async def help_command(update: Update, context: CallbackContext) -> None:
     help_text = (
         "/start - Начать взаимодействие с ботом (ввод имени)\n"
+        "/cancel - Отменить текущее действие\n"
         "/create_queue - Создать очередь\n"
         "/delete_queue - Удалить очередь\n"
         "/leave - Покинуть очередь\n"
@@ -1127,12 +1108,13 @@ async def help_command(update: Update, context: CallbackContext) -> None:
 async def set_commands(app):
     commands = [
         BotCommand("start", "Начать"),
-        BotCommand("create_queue", "Создать очередь"),
-        BotCommand("delete_queue", "Удалить очередь"),
-        BotCommand("leave", "Покинуть очередь"),
-        BotCommand("skip", "Пропустить ход"),
+        BotCommand("cancel", "Отменить текущее действие"),
         BotCommand("queue_info", "Список в очереди"),
         BotCommand("show_queues", "Показать очереди"),
+        BotCommand("leave", "Покинуть очередь"),
+        BotCommand("skip", "Пропустить ход"),
+        BotCommand("create_queue", "Создать очередь"),
+        BotCommand("delete_queue", "Удалить очередь"),
         BotCommand("help", "Помощь"),
     ]
     try:
@@ -1182,6 +1164,13 @@ async def get_queue_name_by_id(queue_id: int) -> str | None:
         logger.error(f"Ошибка при получении имени очереди по ID: {e}")
         return None
 
+async def cancel(update: Update, context: CallbackContext) -> int:
+    """Отменяет текущую команду и очищает пользовательские данные."""
+    context.user_data.clear()  # Очищаем все временные данные пользователя
+    await update.message.reply_text("❌ Действие отменено. Вы можете начать заново.", parse_mode="Markdown")
+    return ConversationHandler.END
+
+
 def main():
     # Создаем новый цикл событий
     loop = asyncio.new_event_loop()
@@ -1221,7 +1210,7 @@ def main():
                  MessageHandler(filters.LOCATION, create_queue_location_custom),
             ]
         },
-        fallbacks=[CommandHandler("cancel", create_queue_cancel)],
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
 
     # ConversationHandler для смены имени
@@ -1230,7 +1219,7 @@ def main():
         states={
             CHANGE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, change_name)]
         },
-        fallbacks=[CommandHandler("cancel", change_name_cancel)]
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
 
     # Добавляем ConversationHandler
@@ -1248,6 +1237,7 @@ def main():
     application.add_handler(CommandHandler("skip", skip_turn))
     application.add_handler(CommandHandler("queue_info", queue_info))
     application.add_handler(CommandHandler("show_queues", show_queues))
+    application.add_handler(CommandHandler("cancel", cancel))
     application.add_handler(CommandHandler("help", help_command))
 
     # Обработчики сообщений
