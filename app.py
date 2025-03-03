@@ -270,7 +270,7 @@ async def create_queue_time(update: Update, context: CallbackContext) -> int:
     user_input = update.message.text.strip()
 
     if user_input == "/now":
-        now_time = datetime.now().strftime("%H:%M")
+        now_time = datetime.now(GMT_PLUS_5).strftime("%H:%M")
         context.user_data['queue_time'] = now_time
         await update.message.reply_text(
             f"✅ *Выбрано текущее время:* `{now_time}` ⏰\n\n"
