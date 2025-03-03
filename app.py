@@ -235,7 +235,7 @@ async def create_queue_date(update: Update, context: CallbackContext) -> int:
     user_input = update.message.text.strip()
 
     if user_input == "/today":
-        today = datetime.now().strftime("%d.%m.%y")
+        today = datetime.now(GMT_PLUS_5).strftime("%d.%m.%y")
         context.user_data['queue_date'] = today
         await update.message.reply_text(
             f"✅ *Дата выбрана:* `{today}` 📆\n\n"
