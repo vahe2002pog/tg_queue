@@ -36,7 +36,8 @@ def create_tables(conn):
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
-                name TEXT
+                name TEXT,
+                state TEXT
             )
         """)
         cursor.execute("""
@@ -69,11 +70,6 @@ conn = create_connection()
 if conn:
     create_tables(conn)
 
-# Структура данных для хранения очередей (теперь не нужна в памяти, берем из БД)
-# queues = {}  # Словарь для хранения очередей
-user_names = {}  # Словарь для хранения имя пользователей
-user_state = {}  # Словарь для хранения состояния (запрос имени или уже введено)
-
 # Stages для ConversationHandler
 QUEUE_NAME, QUEUE_DATE, QUEUE_TIME, CHANGE_NAME, CHOOSE_LOCATION = range(5) # Добавлен CHOOSE_LOCATION
 
@@ -97,13 +93,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Получаем имя пользователя из базы данных
     cursor = conn.cursor()
-    cursor.execute("SELECT name FROM users WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT name, state FROM users WHERE user_id = ?", (user_id,))
     result = cursor.fetchone()
 
     if result:
-        user_name = result[0]
-        user_names[user_id] = user_name  # Load into memory
-        user_state[user_id] = "name_entered"
         keyboard = [
             [InlineKeyboardButton("📋 Показать очереди", callback_data="show_queues")],
             [InlineKeyboardButton("🔄 Сменить имя", callback_data="change_name")]
@@ -115,7 +108,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         # Запрашиваем имя, если оно еще не введено
         await update.message.reply_text("Привет! Пожалуйста, введите ваше *имя*:", parse_mode="Markdown")
-        user_state[user_id] = "waiting_for_name"
+        update_user_state(user_id, "waiting_for_name")
+
+async def update_user_state(user_id: int, state: str):
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET state = ? WHERE user_id = ?", (state, user_id))
+        conn.commit()
+        logger.info(f"Состояние пользователя {user_id} обновлено на {state} в базе данных")
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при обновлении состояния пользователя в базе данных: {e}")
+
 
 # Обработчик нажатий на кнопки главного меню
 async def main_menu_buttons(update: Update, context: CallbackContext) -> None:
@@ -136,20 +139,17 @@ async def set_name(update: Update, context: CallbackContext) -> None:
     # Сохраняем имя пользователя в базу данных
     try:
         cursor = conn.cursor()
-        cursor.execute("INSERT OR REPLACE INTO users (user_id, name) VALUES (?, ?)", (user_id, user_name))
+        cursor.execute("INSERT OR REPLACE INTO users (user_id, name, state) VALUES (?, ?, ?)", (user_id, user_name, "name_entered"))
         conn.commit()
         logger.info(f"Имя пользователя {user_name} сохранено в базе данных")
     except sqlite3.Error as e:
         logger.error(f"Ошибка при сохранении имени пользователя в базе данных: {e}")
 
-    # Сохраняем имя пользователя в словарь
-    user_names[user.id] = user_name
-
     # Подтверждаем, что имя сохранено
     await update.message.reply_text(f"✅ Ваше имя *{user_name}* сохранено.", parse_mode="Markdown")
     
     # Меняем состояние, чтобы больше не запрашивать имя
-    user_state[user.id] = "name_entered"
+    update_user_state(user_id, "name_entered")
 
     # Показываем кнопки главного меню
     keyboard = [
@@ -170,10 +170,7 @@ async def change_name(update: Update, context: CallbackContext) -> int:
     user_id = user.id
     new_name = update.message.text
 
-    # Обновляем имя пользователя в словаре
-    user_names[user.id] = new_name
-
-     # Обновляем имя пользователя в базе данных
+    # Обновляем имя пользователя в базе данных
     try:
         cursor = conn.cursor()
         cursor.execute("UPDATE users SET name = ? WHERE user_id = ?", (new_name, user_id))
@@ -184,7 +181,7 @@ async def change_name(update: Update, context: CallbackContext) -> int:
 
     # Подтверждаем, что имя изменено
     await update.message.reply_text(f"✅ Ваше имя изменено на *{new_name}*.", parse_mode="Markdown")
-    user_state[user_id] = "name_entered" # Update user state
+    update_user_state(user_id, "name_entered") # Update user state
 
     # Показываем кнопки главного меню
     keyboard = [
@@ -417,7 +414,7 @@ async def handle_deeplink(update: Update, context: CallbackContext) -> None:
                     return
 
                 cursor = conn.cursor()
-                cursor.execute("SELECT name FROM users WHERE user_id = ?", (user_id,))
+                cursor.execute("SELECT name, state FROM users WHERE user_id = ?", (user_id,))
                 result = cursor.fetchone()
 
                 if not result:
@@ -559,9 +556,14 @@ async def delete_queue_button(update: Update, context: CallbackContext) -> None:
 # Команда /leave — показать очереди, в которых состоит пользователь, и выйти из выбранной
 async def leave_queue(update: Update, context: CallbackContext) -> None:
     user = update.message.from_user
-    user_name = user_names.get(user.id, None)
+    user_id = user.id
 
-    if not user_name:
+    # Получаем имя пользователя из базы данных
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM users WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+
+    if not result:
         await update.message.reply_text("📌 Для начала введите ваше *имя* с помощью команды /start.", parse_mode="Markdown")
         return
 
@@ -624,9 +626,13 @@ async def leave_button(update: Update, context: CallbackContext) -> None:
 async def skip_turn(update: Update, context: CallbackContext) -> None:
     user = update.message.from_user
     user_id = update.message.from_user.id
-    user_name = user_names.get(user_id, None)
 
-    if not user_name:
+    # Получаем имя пользователя из базы данных
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM users WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+
+    if not result:
         await update.message.reply_text("📌 Для начала введите ваше *имя* с помощью команды /start.", parse_mode="Markdown")
         return
 
@@ -698,7 +704,6 @@ async def skip_button(update: Update, context: CallbackContext) -> None:
             await swap_queue_users(queue_id,user1_id,user2_id)
 
             #Добавлена проверка на наличие второго пользователя, а также извлечение ника
-            #Нужно извлекать не из user_names, a из БД, чтобы было актуальное инфо
             user2_name= await get_user_name(user2_id)
             if user2_name:
                await query.edit_message_text(f"✅ Вы пропустили свой ход. Ваш ход теперь после *{user2_name}*.", parse_mode="Markdown")
@@ -754,9 +759,14 @@ async def swap_queue_users(queue_id:int, user1_id:int, user2_id:int):
 # Команда /queue_info — просмотр списка людей в очереди
 async def queue_info(update: Update, context: CallbackContext) -> None:
     user = update.message.from_user
-    user_name = user_names.get(user.id, None)
+    user_id = user.id
 
-    if not user_name:
+    # Получаем имя пользователя из базы данных
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM users WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+
+    if not result:
         await update.message.reply_text("📌 Для начала введите ваше *имя* с помощью команды /start.", parse_mode="Markdown")
         return
 
