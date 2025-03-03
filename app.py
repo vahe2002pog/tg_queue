@@ -1108,7 +1108,7 @@ async def help_command(update: Update, context: CallbackContext) -> None:
 async def set_commands(app):
     commands = [
         BotCommand("start", "Начать"),
-        BotCommand("cancel", "Отменить текущее действие"),
+        BotCommand("cancel", "Отмена"),
         BotCommand("queue_info", "Список в очереди"),
         BotCommand("show_queues", "Показать очереди"),
         BotCommand("leave", "Покинуть очередь"),
