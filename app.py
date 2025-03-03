@@ -398,7 +398,6 @@ async def create_queue_final(update: Update, context: CallbackContext) -> None:
     context.user_data['location_message_id'] = location_message.message_id
 
     # Автоматическое удаление очереди через 5 часов
-    #context.job_queue.run_once(delete_queue_job, 5 * 3600, name)  # 5 hours in секундах
     time_until_deletion = (start_time_gmt5 + timedelta(hours=5)) - datetime.now(GMT_PLUS_5)
     seconds_until_deletion = max(time_until_deletion.total_seconds(), 0)  # Не даем отрицательные значения
 
@@ -798,11 +797,20 @@ async def queue_info(update: Update, context: CallbackContext) -> None:
 # Обработчик нажатий на кнопки просмотра информации о очереди
 async def queue_info_button(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
-    query.answer()  # Подтверждаем нажатие кнопки
+    await query.answer()
+    callback_data = query.data
 
-    user = query.from_user  # Используем from_user из callback_query, а не из message
-    user_id = update.effective_user.id
-    queue_id = int(query.data.split("_")[1])  # Извлекаем queue_id из callback_data
+    # Разбираем callback_data
+    data_parts = callback_data.split("_")
+
+    # Определяем, где находится queue_id (во 2-й или 3-й части)
+    if len(data_parts) >= 2 and data_parts[1].isdigit():
+        queue_id = int(data_parts[1])
+    elif len(data_parts) >= 3 and data_parts[2].isdigit():
+        queue_id = int(data_parts[2])
+    else:
+        await query.message.reply_text("❌ Ошибка: Неверный формат данных. Попробуйте снова.")
+        return
 
     # Получаем название очереди по ID
     queue_name = await get_queue_name_by_id(queue_id)
@@ -826,7 +834,6 @@ async def queue_info_button(update: Update, context: CallbackContext) -> None:
            users_text += f"{i+1}. {user_name}\n"
         else:
            users_text += f"{i+1}. (Пользователь не найден)\n"
-           
 
     await query.edit_message_text(f"📋 Список участников очереди {queue_name}:\n{users_text}")
 
@@ -867,8 +874,7 @@ async def show_queues(update: Update, context: CallbackContext) -> None:
 
     if queues_list:
         keyboard = []
-        for queue in queues_list:  # Iterate over the queues
-            #keyboard.append([InlineKeyboardButton(queue['queue_name'], callback_data=f"join_queue_{queue['queue_name']}")])
+        for queue in queues_list:
             keyboard.append([InlineKeyboardButton(queue['queue_name'], callback_data=f"join_queue_{queue['queue_id']}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.effective_message.reply_text("📋 Выберите очередь для записи:", reply_markup=reply_markup)
@@ -1007,59 +1013,54 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
 
-    #queue_name = query.data.split("_")[2]
-    queue_id = int(query.data.split("_")[2]) #Извлекаем queue_id
-    #context.user_data['queue_name'] = queue_name
-    context.user_data['queue_id'] = queue_id
-    user_id = update.effective_user.id  # store user_id
-    context.user_data['user_id'] = user_id  # store user_id
-    
-    # 1. Получить название очереди по ID
-    queue_name = await get_queue_name_by_id(queue_id)
-    if not queue_name:
-        await query.edit_message_text("❌ Ошибка: Не удалось получить имя очереди.")
+    queue_id = int(query.data.split("_")[2])  # Извлекаем queue_id
+    user_id = update.effective_user.id
+    data_parts = query.data.split("_")
+    if len(data_parts) < 3 or not data_parts[2].isdigit():
+        await query.message.reply_text("❌ Ошибка: Неверный формат данных. Попробуйте снова.")
         return
 
-    # 2. Проверить, что пользователь еще не записан
-    #is_in_queue = await is_user_in_queue(queue_name, user_id)
+    queue_id = int(data_parts[2])  # Извлекаем queue_id
+    context.user_data['queue_id'] = queue_id
+    context.user_data['user_id'] = user_id
+
+    # 1. Показываем список участников перед записью
+    await queue_info_button(update, context)
+
+    # 2. Проверяем, что пользователь еще не записан
     is_in_queue = await is_user_in_queue(queue_id, user_id)
     if is_in_queue:
-        await query.edit_message_text("✅ Вы уже записаны в эту очередь.")
+        # await query.message.reply_text("✅ Вы уже записаны в эту очередь.")
         return
 
     # 3. Получаем очередь и время из базы данных
-    #queue = await get_queue(queue_name)
     queue = await get_queue_by_id(queue_id)
     if not queue:
-        await update.effective_message.reply_text("❌ Ошибка: очередь не найдена.")
+        await query.message.reply_text("❌ Ошибка: очередь не найдена.")
         return
 
-    # 4. Проверяем наступило ли время для записи
+    # 4. Проверяем, началась ли запись
     queue_start_time = queue["start_time"]
     now = datetime.now(GMT_PLUS_5)
 
     if queue_start_time > now:
-        await query.edit_message_text(f"⚠️ Запись на эту очередь начнется *{queue_start_time.strftime('%d.%m.%Y %H:%M')}*⏰", parse_mode="Markdown")
+        await query.message.reply_text(f"⚠️ Запись на эту очередь начнется *{queue_start_time.strftime('%d.%m.%Y %H:%M')}* ⏰", parse_mode="Markdown")
         return
 
-    # Сохраняем имя очереди, чтобы было ясно, что локацию ждут только для ask_location
-    #context.user_data["expecting_location_for"] = queue_name
+    # 5. Запрашиваем геолокацию
     context.user_data["expecting_location_for"] = queue_id
 
-    # Создаем кнопку **ReplyKeyboardMarkup**
     keyboard = [
-        [KeyboardButton("Отправить геолокацию", web_app=WebAppInfo(url=GET_LOCATION_URL))]
+        [KeyboardButton("📍 Отправить геолокацию", web_app=WebAppInfo(url=GET_LOCATION_URL))]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
-    # Отправляем сообщение с кнопкой
     sent_message = await query.message.reply_text(
-        f"📌 Для записи в очередь *{queue_name}*, нажмите *кнопку* и отправьте вашу геолокацию📍:",
+        f"📌 Для записи в очередь *{queue['queue_name']}*, нажмите кнопку и отправьте вашу геолокацию 📍:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
 
-    # Сохраняем ID сообщения
     context.user_data["location_message_id"] = sent_message.message_id
 
 async def get_queue(queue_name: str) -> dict | None:
