@@ -200,7 +200,7 @@ async def change_name(update: Update, context: CallbackContext) -> int:
 async def create_queue_start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(
         "📌 *Создание очереди*\n\n"
-        "🔹 Введите *название очереди*.\n"
+        "🔹 Введите *название очереди*.\n",
         parse_mode="Markdown"
     )
     return QUEUE_NAME
@@ -211,7 +211,7 @@ async def create_queue_name(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(
         f"✅ *Название очереди:* `{update.message.text}`\n\n"
         "📅 Теперь введите *дату начала* в формате _ДД.ММ.ГГ_.\n"
-        "📆 Чтобы выбрать *сегодняшнюю дату*, введите /today.\n"
+        "📆 Чтобы выбрать *сегодняшнюю дату*, введите /today.\n",
         parse_mode="Markdown"
     )
     return QUEUE_DATE
@@ -226,7 +226,7 @@ async def create_queue_date(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text(
             f"✅ *Дата выбрана:* `{today}` 📆\n\n"
             "🕒 Теперь введите *время начала* в формате _ЧЧ:ММ_.\n"
-            "⏰ Чтобы выбрать *текущее время*, введите /now.\n"
+            "⏰ Чтобы выбрать *текущее время*, введите /now.\n",
             parse_mode="Markdown"
         )
         return QUEUE_TIME
@@ -245,7 +245,7 @@ async def create_queue_date(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(
         "📅 *Дата сохранена!* ✅\n\n"
         "🕒 Теперь введите *время начала* в формате _ЧЧ:ММ_.\n"
-        "⏰ Чтобы выбрать *текущее время*, введите /now.\n"
+        "⏰ Чтобы выбрать *текущее время*, введите /now.\n",
         parse_mode="Markdown"
     )
     return QUEUE_TIME
