@@ -15,10 +15,10 @@ from db import (
     insert_broadcast, get_broadcasts, delete_broadcast
 )
 from utils import (
-     send_notification,  build_main_menu, build_location_menu, validate_date,
+    build_main_menu, build_location_menu, validate_date,
     validate_time, check_distance_and_join, create_join_queue_button,
     send_queue_created_message, build_queues_menu, build_delete_queue_menu, build_leave_queue_menu,
-    build_skip_turn_menu, build_queue_info_menu, generate_queue_info_message, build_web_app_location_button, add_user_to_queue
+    build_skip_turn_menu, build_queue_info_menu, generate_queue_info_message, build_web_app_location_button
 )
 
 logger = logging.getLogger(__name__)
@@ -260,7 +260,7 @@ async def handle_deeplink(update: Update, context: CallbackContext) -> None:
 
             context.user_data['queue_id'] = queue_id
             context.user_data['user_id'] = user_id
-            await ask_location_from_message(update.message, context)
+            await ask_location(update, context)
     elif update.callback_query:
         pass  # Не должно вызываться
 
@@ -486,21 +486,39 @@ async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
         logger.error(f"Ошибка в обработке Web App данных: {e}")
         await update.message.reply_text("❌ Произошла ошибка.", reply_markup=ReplyKeyboardRemove())
 
-async def ask_location_from_message(message: Message, context: CallbackContext) -> None:
-    """Запрашивает геолокацию при вызове через deeplink."""
+async def ask_location(update: Update, context: CallbackContext) -> None:
+    """Запрашивает геолокацию пользователя."""
     conn = context.bot_data['conn']
-    queue_id = context.user_data.get("queue_id")
-    if not queue_id:
-        await message.reply_text("❌ Ошибка: Не найден ID очереди.")
+
+    # Определение источника запроса (CallbackQuery или Message)
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        message = query.message
+        data_parts = query.data.split("_")
+        if len(data_parts) < 3 or not data_parts[2].isdigit():
+            await message.reply_text("❌ Ошибка: Неверный формат данных.")
+            return
+        queue_id = int(data_parts[2])
+        user_id = update.effective_user.id
+
+    elif update.message:
+        message = update.message
+        queue_id = context.user_data.get("queue_id")
+        user_id = message.from_user.id
+        if not queue_id:
+            await message.reply_text("❌ Ошибка: Не найден ID очереди.")
+            return
+    else:
         return
 
-    queue_name = get_queue_name_by_id(conn, queue_id)
-    if not queue_name:
-        await message.reply_text("❌ Ошибка: Не удалось получить имя очереди.")
-        return
-
-    user_id = message.from_user.id
+    context.user_data['queue_id'] = queue_id
     context.user_data['user_id'] = user_id
+
+    # Предварительный показ списка участников (для обоих случаев)
+    info_message = await generate_queue_info_message(conn, queue_id)
+    await message.reply_text(info_message)
+
 
     if is_user_in_queue(conn, queue_id, user_id):
         await message.reply_text("✅ Вы уже записаны в эту очередь.")
@@ -512,53 +530,19 @@ async def ask_location_from_message(message: Message, context: CallbackContext) 
         return
 
     if queue["start_time"] > datetime.now(GMT_PLUS_5):
-        await message.reply_text(f"⚠️ Запись начнется *{queue['start_time'].strftime('%d.%m.%Y %H:%M')}*⏰", parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
+        await message.reply_text(f"⚠️ Запись начнется *{queue['start_time'].strftime('%d.%m.%Y %H:%M')}* ⏰", parse_mode="Markdown")
         return
 
     context.user_data["expecting_location_for"] = queue_id
     reply_markup = build_web_app_location_button()
+
+    queue_name = queue['queue_name'] if update.callback_query else get_queue_name_by_id(conn, queue_id)
+    if not queue_name:
+        await message.reply_text("❌ Ошибка: Не удалось получить имя")
+        return
+
     sent_message = await message.reply_text(
-        f"📌 Для записи в '{queue_name}', нажмите *кнопку* и отправьте геолокацию📍:",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
-    context.user_data["location_message_id"] = sent_message.message_id
-
-async def ask_location(update: Update, context: CallbackContext) -> None:
-    """Запрашивает геолокацию при нажатии на кнопку 'Присоединиться'."""
-    query = update.callback_query
-    await query.answer()
-    conn = context.bot_data['conn']
-    data_parts = query.data.split("_")
-
-    if len(data_parts) < 3 or not data_parts[2].isdigit():
-        await query.message.reply_text("❌ Ошибка: Неверный формат данных.")
-        return
-
-    queue_id = int(data_parts[2])
-    user_id = update.effective_user.id
-    context.user_data['queue_id'] = queue_id
-    context.user_data['user_id'] = user_id
-
-    message = await generate_queue_info_message(conn, queue_id)
-    await query.message.reply_text(message)
-
-    if is_user_in_queue(conn, queue_id, user_id):
-        return
-
-    queue = await get_queue_by_id(conn, queue_id)
-    if not queue:
-        await query.message.reply_text("❌ Ошибка: очередь не найдена.")
-        return
-
-    if queue["start_time"] > datetime.now(GMT_PLUS_5):
-        await query.message.reply_text(f"⚠️ Запись начнется *{queue['start_time'].strftime('%d.%m.%Y %H:%M')}* ⏰", parse_mode="Markdown")
-        return
-
-    context.user_data["expecting_location_for"] = queue_id
-    reply_markup = build_web_app_location_button()
-    sent_message = await query.message.reply_text(
-        f"📌 Для записи в '{queue['queue_name']}', нажмите *кнопку* и отправьте геолокацию 📍:",
+        f"📌 Для записи в '{queue_name}', нажмите *кнопку* и отправьте геолокацию 📍:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )

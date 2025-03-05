@@ -11,7 +11,7 @@ from handlers import (
     handle_deeplink, delete_queue_job, delete_queue_start, delete_queue_button,
     leave_queue, leave_button, skip_turn, skip_button, queue_info,
     queue_info_button, show_queues, handle_web_app_data, ask_location,
-    ask_location_from_message, main_menu_buttons, unknown, help_command,
+    main_menu_buttons, unknown, help_command,
     cancel, set_commands, load_scheduled_broadcasts, start_broadcast, broadcast_message,
     broadcast_targets, broadcast_schedule, send_broadcast
 )
