@@ -1,6 +1,6 @@
 import logging
 import json
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, BotCommand, LinkPreviewOptions, WebAppInfo, Message, ReplyKeyboardRemove
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, BotCommand, LinkPreviewOptions, WebAppInfo, Message, ReplyKeyboardRemove, InputMediaPhoto
 from telegram.ext import Application, ContextTypes, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters, ApplicationBuilder, Defaults, ConversationHandler, JobQueue
 from datetime import datetime, timedelta, timezone
 from config import TOKEN, ADMIN_ID, MF_COORDINATES, GET_LOCATION_URL
@@ -51,6 +51,15 @@ def create_tables(conn):
             );
         """)
         cursor.execute("""
+            CREATE TABLE IF NOT EXISTS broadcasts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_text TEXT,
+                message_photo TEXT,
+                recipients TEXT,
+                send_time TEXT
+            )
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS queue_users (
                 queue_id INTEGER,
                 user_id INTEGER,
@@ -71,12 +80,126 @@ if conn:
     create_tables(conn)
 
 # Stages для ConversationHandler
-QUEUE_NAME, QUEUE_DATE, QUEUE_TIME, CHANGE_NAME, CHOOSE_LOCATION = range(5) # Добавлен CHOOSE_LOCATION
+QUEUE_NAME, QUEUE_DATE, QUEUE_TIME, CHANGE_NAME, CHOOSE_LOCATION = range(5)
+BROADCAST_MESSAGE, BROADCAST_TARGETS, BROADCAST_SCHEDULE = range(3)
 
 target_coordinates = MF_COORDINATES
 
 # Часовой пояс GMT+5
 GMT_PLUS_5 = timezone(timedelta(hours=5))
+
+# Функция для загрузки рассылок при запуске
+async def load_scheduled_broadcasts(job_queue: JobQueue):
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, message_text, message_photo, recipients, send_time FROM broadcasts")
+    for row in cursor.fetchall():
+        broadcast_id, text, photo, recipients, send_time_str = row
+        send_time = datetime.fromisoformat(send_time_str).replace(tzinfo=GMT_PLUS_5)
+        
+        delay = (send_time - datetime.now(GMT_PLUS_5)).total_seconds()
+        if delay > 0:
+            job_queue.run_once(send_broadcast, delay, data={
+                'broadcast_id': broadcast_id,
+                'broadcast_text': text if text else '',
+                'broadcast_photo': photo if photo else '',
+                'broadcast_targets': recipients
+            })
+
+# Команда для запуска рассылки
+async def start_broadcast(update: Update, context: CallbackContext) -> int:
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ У вас нет прав для выполнения этой команды.")
+        return ConversationHandler.END
+    
+    await update.message.reply_text("📝 Введите текст сообщения или отправьте изображение:")
+    return BROADCAST_MESSAGE
+
+# Обработчик текста или изображения
+async def broadcast_message(update: Update, context: CallbackContext) -> int:
+    text = update.message.caption if update.message.caption else update.message.text
+    photo = update.message.photo[-1].file_id if update.message.photo else None
+    
+    context.user_data['broadcast_text'] = text if text else ''
+    context.user_data['broadcast_photo'] = photo if photo else ''
+    
+    await update.message.reply_text("👥 Введите ID пользователей через пробел или напишите /all для рассылки всем:")
+    return BROADCAST_TARGETS
+
+# Обработчик выбора получателей
+async def broadcast_targets(update: Update, context: CallbackContext) -> int:
+    if update.message.text.lower() == '/all':
+        context.user_data['broadcast_targets'] = 'all'
+    else:
+        context.user_data['broadcast_targets'] = list(map(int, update.message.text.split()))
+    
+    await update.message.reply_text("⏰ Введите дату и время отправки (формат: ДД.ММ.ГГ ЧЧ:ММ):")
+    return BROADCAST_SCHEDULE
+
+# Обработчик времени отправки
+async def broadcast_schedule(update: Update, context: CallbackContext) -> int:
+    cursor = conn.cursor()
+    user_input = update.message.text.strip()
+    
+    try:
+        send_time = datetime.strptime(user_input, "%d.%m.%y %H:%M").replace(tzinfo=GMT_PLUS_5)
+    except ValueError:
+        await update.message.reply_text("❌ Неверный формат. Введите дату и время в формате ДД.ММ.ГГ ЧЧ:ММ:")
+        return BROADCAST_SCHEDULE
+    
+    context.user_data['broadcast_time'] = send_time
+    
+    # Сохраняем в базу данных
+    cursor.execute(
+        "INSERT INTO broadcasts (message_text, message_photo, recipients, send_time) VALUES (?, ?, ?, ?)",
+        (context.user_data['broadcast_text'],
+         context.user_data['broadcast_photo'],
+         ','.join(map(str, context.user_data['broadcast_targets'])) if context.user_data['broadcast_targets'] != 'all' else 'all',
+         send_time.isoformat())
+    )
+    conn.commit()
+    broadcast_id = cursor.lastrowid
+    
+    # Планируем рассылку
+    context.job_queue.run_once(send_broadcast, (send_time - datetime.now(GMT_PLUS_5)).total_seconds(), data={
+        'broadcast_id': broadcast_id,
+        'broadcast_text': context.user_data['broadcast_text'],
+        'broadcast_photo': context.user_data['broadcast_photo'],
+        'broadcast_targets': context.user_data['broadcast_targets']
+    })
+    
+    await update.message.reply_text("✅ Рассылка запланирована.")
+    return ConversationHandler.END
+
+# Функция для отправки рассылки
+async def send_broadcast(context: CallbackContext) -> None:
+    data = context.job.data
+    text = data.get('broadcast_text', '').strip()
+    photo = data.get('broadcast_photo', '').strip()
+    targets = data.get('broadcast_targets')
+    
+    # Получаем список пользователей
+    cursor = conn.cursor()
+    if targets == 'all':
+        cursor.execute("SELECT user_id FROM users")
+        users = [row[0] for row in cursor.fetchall()]
+    else:
+        users = list(map(int, targets.split(',')))
+    
+    # Отправляем сообщение
+    for user_id in users:
+        try:
+            if photo and text:
+                await context.bot.send_photo(chat_id=user_id, photo=photo, caption=text, parse_mode="Markdown")
+            elif photo:
+                await context.bot.send_photo(chat_id=user_id, photo=photo)
+            else:
+                await context.bot.send_message(chat_id=user_id, text=text, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Ошибка при отправке {user_id}: {e}")
+    
+    # Удаляем рассылку из базы после отправки
+    cursor.execute("DELETE FROM broadcasts WHERE id = ?", (data['broadcast_id'],))
+    conn.commit()
 
 # Функция для отправки уведомлений пользователям
 async def send_notification(user_id: int, message: str, context: CallbackContext):
@@ -1233,6 +1356,18 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
+    
+    # Добавляем обработчик в приложение
+    broadcast_handler = ConversationHandler(
+        entry_points=[CommandHandler("broadcast", start_broadcast)],
+        states={
+            BROADCAST_MESSAGE: [MessageHandler(filters.TEXT | filters.PHOTO, broadcast_message)],
+            BROADCAST_TARGETS: [MessageHandler(filters.TEXT, broadcast_targets)],
+            BROADCAST_SCHEDULE: [MessageHandler(filters.TEXT, broadcast_schedule)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+    application.add_handler(broadcast_handler)
 
     # Добавляем ConversationHandler
     application.add_handler(conv_handler)
@@ -1265,6 +1400,9 @@ def main():
 
     # Обработчик неизвестных callback query (это важно!)
     application.add_handler(CallbackQueryHandler(unknown))
+
+    # Загружаем запланированные рассылки при старте бота
+    application.job_queue.run_once(load_scheduled_broadcasts, 1)
 
     # Запускаем приложение
     application.run_polling(allowed_updates=Update.ALL_TYPES)
