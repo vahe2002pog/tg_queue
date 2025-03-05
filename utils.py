@@ -68,6 +68,12 @@ async def check_distance_and_join(update, context, queue_id, user_id, lat, lon):
     target_coordinates = (queue["latitude"], queue["longitude"])
     user_coord = (lat, lon)
     distance = geodesic(user_coord, target_coordinates).meters
+    location_message = await update.effective_message.reply_location(
+        latitude=lat,
+        longitude=lon,
+        reply_markup=None
+        )
+    context.user_data['location_message_id'] = location_message.message_id
 
     if distance <= max_distance:
         join_time = datetime.now(GMT_PLUS_5).isoformat()

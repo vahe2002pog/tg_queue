@@ -479,7 +479,7 @@ async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
         if not queue_id:
             await update.message.reply_text("❌ Ошибка: не найдена очередь.", reply_markup=ReplyKeyboardRemove())
             return
-
+        
         await check_distance_and_join(update, context, queue_id, user_id, lat, lon)
 
     except Exception as e:
