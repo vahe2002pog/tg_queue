@@ -659,11 +659,17 @@ async def broadcast_schedule(update: Update, context: CallbackContext) -> int:
         return BROADCAST_SCHEDULE
 
     context.user_data['broadcast_time'] = send_time
+
+    if isinstance(context.user_data['broadcast_targets'], list):
+        targets_str = ','.join(map(str, context.user_data['broadcast_targets']))
+    else:
+        targets_str = context.user_data['broadcast_targets']
+
     broadcast_id = insert_broadcast(
         conn,
         context.user_data['broadcast_text'],
         context.user_data['broadcast_photo'],
-        ','.join(map(str, context.user_data['broadcast_targets'])) if context.user_data['broadcast_targets'] != 'all' else 'all',
+        targets_str,
         send_time
     )
 
@@ -671,8 +677,9 @@ async def broadcast_schedule(update: Update, context: CallbackContext) -> int:
         'broadcast_id': broadcast_id,
         'broadcast_text': context.user_data['broadcast_text'],
         'broadcast_photo': context.user_data['broadcast_photo'],
-        'broadcast_targets': context.user_data['broadcast_targets']
+        'broadcast_targets': targets_str
     })
+
     await update.message.reply_text("✅ Рассылка запланирована.")
     return ConversationHandler.END
 
@@ -683,22 +690,30 @@ async def send_broadcast(context: CallbackContext) -> None:
     text = data.get('broadcast_text', '').strip()
     photo = data.get('broadcast_photo', '').strip()
     targets = data.get('broadcast_targets')
+    broadcast_id = data.get('broadcast_id')
 
     if targets == 'all':
         cursor = conn.cursor()
         cursor.execute("SELECT user_id FROM users")
         users = [row[0] for row in cursor.fetchall()]
-    else:
-        users = list(map(int, targets.split(',')))
+    else:  # targets это строка
+        try:
+            users = list(map(int, targets.split(',')))
+        except ValueError:
+            logger.error(f"Некорректный формат targets: {targets}")
+            users = []
 
     for user_id in users:
         try:
             if photo and text:
                 await context.bot.send_photo(chat_id=user_id, photo=photo, caption=text, parse_mode="Markdown")
+                logger.info(f"Рассылка #{broadcast_id} (фото + текст) успешно отправлена пользователю {user_id}")
             elif photo:
                 await context.bot.send_photo(chat_id=user_id, photo=photo)
+                logger.info(f"Рассылка #{broadcast_id} (фото) успешно отправлена пользователю {user_id}")
             else:
                 await context.bot.send_message(chat_id=user_id, text=text, parse_mode="Markdown")
+                logger.info(f"Рассылка #{broadcast_id} (текст) успешно отправлена пользователю {user_id}: {text}")
         except Exception as e:
-            logger.error(f"Ошибка при отправке {user_id}: {e}")
-    delete_broadcast(conn, data['broadcast_id'])
+            logger.error(f"Ошибка при отправке рассылки #{broadcast_id} пользователю {user_id}: {e}")
+    delete_broadcast(conn, broadcast_id)
