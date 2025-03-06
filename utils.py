@@ -171,4 +171,5 @@ def build_leave_group_menu(user_groups: list[dict])-> InlineKeyboardMarkup:
 def build_delete_group_menu(groups: list[dict]) -> InlineKeyboardMarkup:
     """Создает меню для удаления групп."""
     buttons = [InlineKeyboardButton(group['group_name'], callback_data=f"delete_group_{group['group_id']}") for group in groups]
+
     return build_menu(buttons, n_cols=1)

@@ -46,13 +46,13 @@ def main():
     builder.job_queue(job_queue)
 
     application = builder.build()
-    application.bot_data['conn'] = conn #Передаем подключение
+    application.bot_data['conn'] = conn
     loop.run_until_complete(set_commands(application))
 
     conv_handler = ConversationHandler(
     entry_points=[CommandHandler("create_queue", create_queue_start)],
     states={
-        CHOOSE_GROUP: [CallbackQueryHandler(create_queue_choose_group, pattern="^(no_group|select_group_)")],
+        CHOOSE_GROUP: [CallbackQueryHandler(create_queue_choose_group, pattern="^(no_group|select_group_\d+)$")],
         QUEUE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_queue_name)],
         QUEUE_DATE: [MessageHandler(filters.TEXT, create_queue_date)],
         QUEUE_TIME: [MessageHandler(filters.TEXT, create_queue_time)],

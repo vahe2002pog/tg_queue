@@ -35,7 +35,8 @@ def create_tables(conn):
                 start_time TEXT,
                 latitude REAL,
                 longitude REAL,
-                creator_id INTEGER
+                creator_id INTEGER,
+                group_id INTEGER
             );
         """)
         cursor.execute("""

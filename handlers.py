@@ -1,7 +1,7 @@
 # handlers.py
 import logging
 import json
-from telegram import Update,  Message, BotCommand, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update,  Message, BotCommand, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from telegram.ext import  ContextTypes,  CallbackContext,  ConversationHandler, JobQueue
 from datetime import datetime
 from geopy.distance import geodesic
@@ -25,8 +25,6 @@ from utils import (
 )
 
 logger = logging.getLogger(__name__)
-
-# --- Command Handlers ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработка команды /start."""
@@ -82,7 +80,7 @@ async def create_queue_start(update: Update, context: CallbackContext) -> int:
     user_id = update.effective_user.id
     user_groups = get_user_groups(conn, user_id)
     reply_markup = build_select_group_menu(user_groups)
-    await update.message.reply_text("Выберите группу для очереди (или 'Без группы'):", reply_markup=reply_markup)
+    await update.message.reply_text("📋 Выберите группу для очереди (или 'Без группы'):", reply_markup=reply_markup)
     return CHOOSE_GROUP
 
 async def create_queue_choose_group(update: Update, context: CallbackContext) -> int:
@@ -93,19 +91,26 @@ async def create_queue_choose_group(update: Update, context: CallbackContext) ->
 
     if group_id_str == "no_group":
         context.user_data['group_id'] = None
+        await query.edit_message_text(
+            "📌 *Создание очереди*\n\n"
+            "🔹 Введите *название очереди*.\n",
+            parse_mode="Markdown"
+        )
     else:
-        try:
-            context.user_data['group_id'] = int(group_id_str.split("_")[2])
-        except (ValueError, IndexError):
-            await query.edit_message_text("❌ Ошибка: Неверный формат выбора группы.")
-            return CHOOSE_GROUP
-    await query.message.reply_text(
-        "📌 *Создание очереди*\n\n"
-        "🔹 Введите *название очереди*.\n",
-        parse_mode="Markdown"
-    )
+        if group_id_str.startswith("select_group_"):
+            try:
+                group_id = int(group_id_str.split("_")[2])
+                context.user_data['group_id'] = group_id
+                await query.edit_message_text(
+                    "📌 *Создание очереди*\n\n"
+                    "🔹 Введите *название очереди*.\n",
+                    parse_mode="Markdown"
+                )
+            except (ValueError, IndexError):
+                await query.edit_message_text("❌ Ошибка: Неверный формат выбора группы.")
+                return CHOOSE_GROUP
 
-    return QUEUE_NAME 
+    return QUEUE_NAME
 
 async def create_queue_name(update: Update, context: CallbackContext) -> int:
     """Обработчик получения названия очереди."""
@@ -214,7 +219,7 @@ async def create_queue_final(update: Update, context: CallbackContext) -> None:
     time_str = context.user_data['queue_time']
     latitude = context.user_data['latitude']
     longitude = context.user_data['longitude']
-    group_id = context.user_data.get('group_id')  # Получаем ID группы (может быть None)
+    group_id = context.user_data.get('group_id')
     conn = context.bot_data['conn']
 
     try:
@@ -723,7 +728,7 @@ async def cancel(update: Update, context: CallbackContext) -> int:
 async def set_commands(app):
     """Устанавливает меню команд."""
     commands = [
-        BotCommand("start", "Начать (ввод имени)"),
+        BotCommand("start", "Начать"),
         BotCommand("cancel", "Отмена"),
         BotCommand("queue_info", "Список в очереди"),
         BotCommand("show_queues", "Показать очереди"),
@@ -915,9 +920,10 @@ async def create_group_name(update: Update, context: CallbackContext) -> int:
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
-            f"Группа '{group_name}' создана!\n"
+            f"✅ Группа *{group_name}* создана!\n"
             f"➡ Нажмите кнопку, чтобы присоединиться.",
-            reply_markup=reply_markup
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
         )
     else:
         await update.message.reply_text("❌ Ошибка при создании группы.")
@@ -949,24 +955,6 @@ async def join_group(update: Update, context: CallbackContext) -> None:
 
     add_user_to_group(conn, group_id, user_id)
     await query.edit_message_text(f"✅ Вы присоединились к группе '{group_name}'")
-
-async def create_group_name(update: Update, context: CallbackContext) -> int:
-    """Сохраняет название группы и завершает процесс."""
-    group_name = update.message.text.strip()
-    conn = context.bot_data['conn']
-    user_id = update.effective_user.id
-
-    if not group_name:
-        await update.message.reply_text("⚠️ Название группы не может быть пустым. Попробуйте снова.")
-        return GROUP_NAME
-
-    group_id = insert_group(conn, group_name, user_id)
-    if group_id:
-        add_user_to_group(conn, group_id, user_id)  # Сразу добавляем создателя в группу
-        await update.message.reply_text(f"👥 Группа '{group_name}' создана! ID группы: {group_id}")
-    else:
-        await update.message.reply_text("❌ Ошибка при создании группы.")
-    return ConversationHandler.END
 
 async def join_group(update: Update, context: CallbackContext) -> None:
     """Обрабатывает нажатие на кнопку 'Присоединиться к группе'."""
@@ -1047,7 +1035,6 @@ async def delete_group_button(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
     conn = context.bot_data['conn']
-    logger.error(query.data)
 
     user_id = update.effective_user.id
 
