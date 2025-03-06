@@ -45,26 +45,30 @@ def main():
     builder.defaults(defaults)
     builder.job_queue(job_queue)
 
+
     application = builder.build()
     application.bot_data['conn'] = conn
     loop.run_until_complete(set_commands(application))
 
-    conv_handler = ConversationHandler(
-    entry_points=[CommandHandler("create_queue", create_queue_start)],
-    states={
-        CHOOSE_GROUP: [CallbackQueryHandler(create_queue_choose_group, pattern="^(no_group|select_group_\d+)$")],
-        QUEUE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_queue_name)],
-        QUEUE_DATE: [MessageHandler(filters.TEXT, create_queue_date)],
-        QUEUE_TIME: [MessageHandler(filters.TEXT, create_queue_time)],
-        CHOOSE_LOCATION: [
-            CallbackQueryHandler(create_queue_location, pattern="^location_(mathfac|custom)$"),
-            MessageHandler(filters.LOCATION, create_queue_location_custom),
-        ],
-        SEND_NOTIFICATION:[CallbackQueryHandler(send_notification_choice, pattern="^send_notification_(yes|no)")]
+    application.job_queue.run_once(load_scheduled_broadcasts, 1)
 
-    },
-    fallbacks=[CommandHandler("cancel", cancel)],
+    create_queue_handler = ConversationHandler(
+        entry_points=[CommandHandler("create_queue", create_queue_start)],
+        states={
+            CHOOSE_GROUP: [CallbackQueryHandler(create_queue_choose_group, pattern="^select_group_.*")],
+            QUEUE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_queue_name)],
+            QUEUE_DATE: [MessageHandler(filters.TEXT, create_queue_date)],
+            QUEUE_TIME: [MessageHandler(filters.TEXT, create_queue_time)],
+            CHOOSE_LOCATION: [
+                CallbackQueryHandler(create_queue_location, pattern="^location_(mathfac|custom)$"),
+                MessageHandler(filters.LOCATION, create_queue_location_custom),
+            ],
+            SEND_NOTIFICATION:[CallbackQueryHandler(send_notification_choice, pattern="^send_notification_(yes|no)")]
+
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
+    application.add_handler(create_queue_handler)
 
     change_name_handler = ConversationHandler( #Смена имени
         entry_points=[CallbackQueryHandler(change_name_start, pattern="^change_name$")],
@@ -73,6 +77,7 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
+    application.add_handler(change_name_handler)
 
     create_group_handler = ConversationHandler(
             entry_points=[CommandHandler("create_group", create_group_start)],
@@ -98,9 +103,6 @@ def main():
     application.add_handler(broadcast_handler)
 
 
-    application.add_handler(conv_handler)
-    application.add_handler(change_name_handler)
-    application.add_handler(broadcast_handler)
     application.add_handler(CallbackQueryHandler(main_menu_buttons, pattern="^(show_queues|change_name)$"))
 
     # Обработчики команд
@@ -133,7 +135,6 @@ def main():
     application.add_handler(CallbackQueryHandler(join_group, pattern="^join_group_"))
     application.add_handler(CallbackQueryHandler(leave_group_button, pattern="^leave_group_"))
     application.add_handler(CallbackQueryHandler(unknown)) #Важно!
-    application.job_queue.run_once(load_scheduled_broadcasts, 1)
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
     if conn:

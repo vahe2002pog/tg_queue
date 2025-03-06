@@ -159,7 +159,7 @@ def build_select_group_menu(groups: list[dict], with_no_group: bool = True) -> I
     """Создает меню выбора группы при создании очереди."""
     buttons = []
     if with_no_group:
-        buttons.append(InlineKeyboardButton("Без группы", callback_data="no_group"))
+        buttons.append(InlineKeyboardButton("Без группы", callback_data="select_group_none"))
     buttons.extend([InlineKeyboardButton(group['group_name'], callback_data=f"select_group_{group['group_id']}") for group in groups])
     return build_menu(buttons, n_cols=1)
 

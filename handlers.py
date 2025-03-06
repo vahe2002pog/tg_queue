@@ -89,28 +89,27 @@ async def create_queue_choose_group(update: Update, context: CallbackContext) ->
     await query.answer()
     group_id_str = query.data
 
-    if group_id_str == "no_group":
+    if group_id_str == "select_group_none":
         context.user_data['group_id'] = None
-        await query.edit_message_text(
-            "📌 *Создание очереди*\n\n"
-            "🔹 Введите *название очереди*.\n",
-            parse_mode="Markdown"
-        )
+    elif group_id_str.startswith("select_group_"):
+        try:
+            group_id = int(group_id_str.split("_")[2])
+            context.user_data['group_id'] = group_id
+        except (ValueError, IndexError):
+            await query.edit_message_text("❌ Ошибка: Неверный формат выбора группы.")
+            return CHOOSE_GROUP
     else:
-        if group_id_str.startswith("select_group_"):
-            try:
-                group_id = int(group_id_str.split("_")[2])
-                context.user_data['group_id'] = group_id
-                await query.edit_message_text(
-                    "📌 *Создание очереди*\n\n"
-                    "🔹 Введите *название очереди*.\n",
-                    parse_mode="Markdown"
-                )
-            except (ValueError, IndexError):
-                await query.edit_message_text("❌ Ошибка: Неверный формат выбора группы.")
-                return CHOOSE_GROUP
+        await query.edit_message_text("❌ Ошибка: Неподдерживаемый выбор.")
+        return CHOOSE_GROUP
 
+    await query.edit_message_text(
+        "📌 *Создание очереди*\n\n"
+        "🔹 Введите *название очереди*.\n",
+        parse_mode="Markdown"
+    )
+    
     return QUEUE_NAME
+
 
 async def create_queue_name(update: Update, context: CallbackContext) -> int:
     """Обработчик получения названия очереди."""
