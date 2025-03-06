@@ -57,11 +57,177 @@ def create_tables(conn):
                 PRIMARY KEY (queue_id, user_id)
             );
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS groups (
+                group_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_name TEXT NOT NULL,
+                creator_id INTEGER
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS group_users (
+                group_id INTEGER,
+                user_id INTEGER,
+                FOREIGN KEY (group_id) REFERENCES groups(group_id),
+                FOREIGN KEY (user_id) REFERENCES users(user_id),
+                PRIMARY KEY (group_id, user_id)
+            )
+        """)
         conn.commit()
         logger.info("Таблицы созданы успешно")
     except sqlite3.Error as e:
         logger.error(f"Ошибка при создании таблиц: {e}")
 
+
+def insert_group(conn, group_name: str, creator_id: int) -> int | None:
+    """Добавляет новую группу в базу данных."""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO groups (group_name, creator_id) VALUES (?, ?)", (group_name, creator_id))
+        conn.commit()
+        return cursor.lastrowid  # Возвращаем ID созданной группы
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при добавлении группы: {e}")
+        return None
+
+def get_group_by_id(conn, group_id: int) -> dict | None:
+    """Получает информацию о группе по ID."""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT group_name, creator_id FROM groups WHERE group_id = ?", (group_id,))
+        result = cursor.fetchone()
+        if result:
+            return {"group_name": result[0], "creator_id": result[1]}
+        return None
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при получении группы по ID: {e}")
+        return None
+    
+def get_group_name_by_id(conn, group_id: int) -> str | None:
+    """Возвращает имя группы по ID."""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT group_name FROM groups WHERE group_id = ?", (group_id,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при получении имени группы по ID: {e}")
+        return None
+
+def delete_group_db(conn, group_id: int):
+    """Удаляет группу и связанные записи из базы данных."""
+    try:
+        cursor = conn.cursor()
+        # Удаляем записи из group_users
+        cursor.execute("DELETE FROM group_users WHERE group_id = ?", (group_id,))
+        # Удаляем записи из queues, связанные с этой группой (если нужно)
+        cursor.execute("UPDATE queues SET group_id = NULL WHERE group_id = ?", (group_id,))
+        # Удаляем саму группу
+        cursor.execute("DELETE FROM groups WHERE group_id = ?", (group_id,))
+
+        conn.commit()
+        logger.info(f"Группа {group_id} и связанные данные удалены")
+
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при удалении группы {group_id}: {e}")
+
+def get_user_groups(conn, user_id: int) -> list[dict]:
+    """Получает список групп, в которых состоит пользователь."""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT groups.group_id, groups.group_name FROM groups
+            JOIN group_users ON groups.group_id = group_users.group_id
+            WHERE group_users.user_id = ?
+        """, (user_id,))
+        results = cursor.fetchall()
+        return [{"group_id": row[0], "group_name": row[1]} for row in results]
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при получении групп пользователя: {e}")
+        return []
+
+def add_user_to_group(conn, group_id: int, user_id: int):
+    """Добавляет пользователя в группу."""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR IGNORE INTO group_users (group_id, user_id) VALUES (?, ?)", (group_id, user_id))
+        conn.commit()
+        logger.info(f"Пользователь {user_id} добавлен в группу {group_id}")
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при добавлении пользователя в группу: {e}")
+
+def remove_user_from_group(conn, group_id: int, user_id: int):
+    """Удаляет пользователя из группы."""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM group_users WHERE group_id = ? AND user_id = ?", (group_id, user_id))
+        conn.commit()
+        logger.info(f"Пользователь {user_id} удален из группы {group_id}")
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при удалении пользователя из группы: {e}")
+
+def get_group_users(conn, group_id: int) -> list[int]:
+    """Получает список ID пользователей в группе."""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id FROM group_users WHERE group_id = ?", (group_id,))
+        results = cursor.fetchall()
+        return [row[0] for row in results]
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при получении пользователей группы: {e}")
+        return []
+def get_all_groups(conn) -> list[dict]:
+    """Возвращает список всех групп"""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT group_id, group_name FROM groups")
+        result = cursor.fetchall()
+        return [{"group_id":row[0], "group_name":row[1]} for row in result]
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при возврате всех групп: {e}")
+        return []
+
+def get_queues_by_group(conn, group_id: int | None) -> list[dict]:
+    """Возвращает список очередей для заданной группы (или все, если группа None)."""
+    try:
+        cursor = conn.cursor()
+        if group_id is None:
+            cursor.execute("SELECT queue_id, queue_name, start_time FROM queues WHERE group_id IS NULL")
+        else:
+            cursor.execute("SELECT queue_id, queue_name, start_time FROM queues WHERE group_id = ?", (group_id,))
+
+        results = cursor.fetchall()
+        converted_results = []
+        for row in results:
+            start_time_str = row[2]
+            start_time = datetime.fromisoformat(start_time_str) if start_time_str else None
+            converted_results.append({"queue_id": row[0], "queue_name": row[1], "start_time": start_time})
+        return converted_results
+
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при получении очередей для группы: {e}")
+        return []
+
+def update_queue_group_id(conn, queue_id: int, group_id: int | None):
+    """Обновляет group_id для указанной очереди."""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE queues SET group_id = ? WHERE queue_id = ?", (group_id, queue_id))
+        conn.commit()
+        logger.info(f"Очередь {queue_id} привязана к группе {group_id}")
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при обновлении group_id для очереди: {e}")
+
+def get_queue_group_id(conn, queue_id:int) -> int | None:
+    """Получает ID группы"""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT group_id FROM queues WHERE queue_id = ?", (queue_id,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при получении ID группы в очереди: {e}")
+        return None
 
 def update_user_state(conn, user_id: int, state: str):
     """Обновляет состояние пользователя в базе данных."""

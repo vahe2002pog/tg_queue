@@ -1,5 +1,3 @@
-# utils.py
-
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo, ReplyKeyboardRemove, LinkPreviewOptions
 from telegram.ext import CallbackContext
 from datetime import datetime
@@ -151,3 +149,26 @@ def build_web_app_location_button():
     """Создает кнопку для отправки геолокации через Web App."""
     keyboard = [[KeyboardButton("📍 Отправить геолокацию", web_app=WebAppInfo(url=GET_LOCATION_URL))]]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+
+def build_group_menu(groups: list[dict]) -> InlineKeyboardMarkup:
+    """Создает меню со списком групп."""
+    buttons = [InlineKeyboardButton(group['group_name'], callback_data=f"join_group_{group['group_id']}") for group in groups]
+    return build_menu(buttons, n_cols=1)
+
+def build_select_group_menu(groups: list[dict], with_no_group: bool = True) -> InlineKeyboardMarkup:
+    """Создает меню выбора группы при создании очереди."""
+    buttons = []
+    if with_no_group:
+        buttons.append(InlineKeyboardButton("Без группы", callback_data="no_group"))
+    buttons.extend([InlineKeyboardButton(group['group_name'], callback_data=f"select_group_{group['group_id']}") for group in groups])
+    return build_menu(buttons, n_cols=1)
+
+def build_leave_group_menu(user_groups: list[dict])-> InlineKeyboardMarkup:
+    """Создает меню для выхода из групп."""
+    buttons = [InlineKeyboardButton(group['group_name'], callback_data=f"leave_group_{group['group_id']}") for group in user_groups]
+    return build_menu(buttons, n_cols=1)
+
+def build_delete_group_menu(groups: list[dict]) -> InlineKeyboardMarkup:
+    """Создает меню для удаления групп."""
+    buttons = [InlineKeyboardButton(group['group_name'], callback_data=f"delete_group_{group['group_id']}") for group in groups]
+    return build_menu(buttons, n_cols=1)

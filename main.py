@@ -1,5 +1,3 @@
-# main.py
-
 import logging
 from telegram.ext import ApplicationBuilder, Defaults
 from telegram import  LinkPreviewOptions, Update
@@ -13,7 +11,9 @@ from handlers import (
     queue_info_button, show_queues, handle_web_app_data, ask_location,
     main_menu_buttons, unknown, help_command,
     cancel, set_commands, load_scheduled_broadcasts, start_broadcast, broadcast_message,
-    broadcast_targets, broadcast_schedule, send_broadcast
+    broadcast_targets, broadcast_schedule, send_broadcast, create_group_start, create_group_name, join_group, show_groups,
+    create_queue_choose_group, leave_group_button, leave_group_command,
+    send_notification_choice, broadcast_group_select, delete_group_button, delete_group_start
 )
 
 from telegram.ext import (
@@ -21,7 +21,7 @@ from telegram.ext import (
     filters, ConversationHandler, JobQueue
 )
 
-from config import TOKEN, QUEUE_NAME, QUEUE_DATE, QUEUE_TIME, CHOOSE_LOCATION, CHANGE_NAME, BROADCAST_MESSAGE, BROADCAST_TARGETS, BROADCAST_SCHEDULE, JOIN_QUEUE_PAYLOAD
+from config import *
 from db import create_connection, create_tables
 
 # Настройка логирования
@@ -49,18 +49,21 @@ def main():
     application.bot_data['conn'] = conn #Передаем подключение
     loop.run_until_complete(set_commands(application))
 
-    conv_handler = ConversationHandler( #Создание очереди
-        entry_points=[CommandHandler("create_queue", create_queue_start)],
-        states={
-            QUEUE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_queue_name)],
-            QUEUE_DATE: [MessageHandler(filters.TEXT, create_queue_date)],
-            QUEUE_TIME: [MessageHandler(filters.TEXT, create_queue_time)],
-            CHOOSE_LOCATION: [
-                 CallbackQueryHandler(create_queue_location, pattern="^location_(mathfac|custom)$"),
-                 MessageHandler(filters.LOCATION, create_queue_location_custom),
-            ]
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
+    conv_handler = ConversationHandler(
+    entry_points=[CommandHandler("create_queue", create_queue_start)],
+    states={
+        CHOOSE_GROUP: [CallbackQueryHandler(create_queue_choose_group, pattern="^(no_group|select_group_)")],
+        QUEUE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_queue_name)],
+        QUEUE_DATE: [MessageHandler(filters.TEXT, create_queue_date)],
+        QUEUE_TIME: [MessageHandler(filters.TEXT, create_queue_time)],
+        CHOOSE_LOCATION: [
+            CallbackQueryHandler(create_queue_location, pattern="^location_(mathfac|custom)$"),
+            MessageHandler(filters.LOCATION, create_queue_location_custom),
+        ],
+        SEND_NOTIFICATION:[CallbackQueryHandler(send_notification_choice, pattern="^send_notification_(yes|no)")]
+
+    },
+    fallbacks=[CommandHandler("cancel", cancel)],
     )
 
     change_name_handler = ConversationHandler( #Смена имени
@@ -71,15 +74,29 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-    broadcast_handler = ConversationHandler( #Рассылка
+    create_group_handler = ConversationHandler(
+            entry_points=[CommandHandler("create_group", create_group_start)],
+            states={
+                GROUP_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_group_name)],
+            },
+            fallbacks=[CommandHandler("cancel", cancel)],
+        )
+    application.add_handler(create_group_handler)
+
+    broadcast_handler = ConversationHandler(
         entry_points=[CommandHandler("broadcast", start_broadcast)],
         states={
             BROADCAST_MESSAGE: [MessageHandler(filters.TEXT | filters.PHOTO, broadcast_message)],
-            BROADCAST_TARGETS: [MessageHandler(filters.TEXT, broadcast_targets)],
+            BROADCAST_TARGETS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_targets),  # Ввод ID вручную
+                CallbackQueryHandler(broadcast_group_select, pattern="^broadcast_group_") # Выбор группы
+            ],
             BROADCAST_SCHEDULE: [MessageHandler(filters.TEXT, broadcast_schedule)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
+    application.add_handler(broadcast_handler)
+
 
     application.add_handler(conv_handler)
     application.add_handler(change_name_handler)
@@ -94,6 +111,10 @@ def main():
     application.add_handler(CommandHandler("skip", skip_turn))
     application.add_handler(CommandHandler("queue_info", queue_info))
     application.add_handler(CommandHandler("show_queues", show_queues))
+    application.add_handler(CommandHandler("create_group", create_group_start))
+    application.add_handler(CommandHandler("delete_group", delete_group_start))
+    application.add_handler(CommandHandler("show_groups", show_groups)) 
+    application.add_handler(CommandHandler("leave_group", leave_group_command))
     application.add_handler(CommandHandler("cancel", cancel))
     application.add_handler(CommandHandler("help", help_command))
 
@@ -101,12 +122,16 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, set_name))
     application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
 
+    
     # Обработчики нажатий кнопок
+    application.add_handler(CallbackQueryHandler(delete_group_button, pattern="^delete_group_"))
     application.add_handler(CallbackQueryHandler(ask_location, pattern="^join_queue_"))
     application.add_handler(CallbackQueryHandler(leave_button, pattern="^leave_"))
     application.add_handler(CallbackQueryHandler(skip_button, pattern="^skip_"))
     application.add_handler(CallbackQueryHandler(queue_info_button, pattern="info_"))
     application.add_handler(CallbackQueryHandler(delete_queue_button, pattern="^delete_queue_"))
+    application.add_handler(CallbackQueryHandler(join_group, pattern="^join_group_"))
+    application.add_handler(CallbackQueryHandler(leave_group_button, pattern="^leave_group_"))
     application.add_handler(CallbackQueryHandler(unknown)) #Важно!
     application.job_queue.run_once(load_scheduled_broadcasts, 1)
     application.run_polling(allowed_updates=Update.ALL_TYPES)
