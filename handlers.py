@@ -13,33 +13,31 @@ from utils import *
 
 logger = logging.getLogger(__name__)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def start(update: Update, context: CallbackContext) -> int:
     """Обработка команды /start."""
-    user = update.message.from_user
-    user_id = user.id
+    user_id = update.effective_user.id
     conn = context.bot_data['conn']
 
     result = get_user_data(conn, user_id)
     if result:
         reply_markup = build_main_menu()
         await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
+        return ConversationHandler.END 
     else:
         await update.message.reply_text("Привет! Пожалуйста, введите ваше *имя*:", parse_mode="Markdown")
-        update_user_state(conn, user_id, "waiting_for_name")
+        context.user_data['state'] = WAITING_FOR_NAME 
+        return WAITING_FOR_NAME 
 
-async def set_name(update: Update, context: CallbackContext) -> None:
+async def set_name(update: Update, context: CallbackContext) -> int:
     """Обработчик ввода имени пользователя."""
-    user = update.message.from_user
-    user_id = user.id
+    user_id = update.effective_user.id
     user_name = update.message.text
     conn = context.bot_data['conn']
-
     set_user_name(conn, user_id, user_name)
     await update.message.reply_text(f"✅ Ваше имя *{user_name}* сохранено.", parse_mode="Markdown")
-    update_user_state(conn, user_id, "name_entered")
-
     reply_markup = build_main_menu()
     await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
+    return ConversationHandler.END
 
 async def change_name_start(update: Update, context: CallbackContext) -> None:
     """Обработчик начала смены имени."""

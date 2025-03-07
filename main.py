@@ -90,12 +90,23 @@ def main():
     )
     application.add_handler(broadcast_handler)
 
+    start_conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],  # Команда /start
+        states={
+            WAITING_FOR_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_name)],  # Обработчик ввода имени
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],  # Команда для отмены
+    )
+
+	 # Добавляем ConversationHandler в приложение
+    application.add_handler(start_conv_handler)
+
 
     application.add_handler(CallbackQueryHandler(main_menu_buttons, pattern="^(show_queues|change_name)$"))
 
     # Обработчики команд
     application.add_handler(CommandHandler("start", handle_deeplink, filters.Regex(JOIN_QUEUE_PAYLOAD)))
-    application.add_handler(CommandHandler("start", start))
+    # application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("delete_queue", delete_queue_start))
     application.add_handler(CommandHandler("leave", leave_queue))
     application.add_handler(CommandHandler("skip", skip_turn))
@@ -109,7 +120,7 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
 
     # Обработчики сообщений
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, set_name))
+    # application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, set_name))
     application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
 
     
