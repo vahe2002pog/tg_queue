@@ -934,39 +934,23 @@ async def join_group(update: Update, context: CallbackContext) -> None:
 
     #Валидация данных
     if len(data_parts) < 3:
-        await query.edit_message_text("❌ Ошибка: неверный формат данных")
+        await query.message.reply_text("❌ Ошибка: неверный формат данных")
         return
     try:
         group_id = int(data_parts[2])
     except ValueError:
-         await query.edit_message_text("❌ Ошибка: неверный формат ID группы")
+         await query.message.reply_text("❌ Ошибка: неверный формат ID группы")
          return
 
     user_id = update.effective_user.id
 
     group_name = get_group_name_by_id(conn, group_id)
     if not group_name:
-        await query.edit_message_text("❌ Ошибка: Группа не найдена.")
+        await query.message.reply_text("❌ Ошибка: Группа не найдена.")
         return
 
     add_user_to_group(conn, group_id, user_id)
-    await query.edit_message_text(f"✅ Вы присоединились к группе '{group_name}'")
-
-async def join_group(update: Update, context: CallbackContext) -> None:
-    """Обрабатывает нажатие на кнопку 'Присоединиться к группе'."""
-    query = update.callback_query
-    await query.answer()
-    conn = context.bot_data['conn']
-    group_id = int(query.data.split("_")[2])
-    user_id = update.effective_user.id
-
-    group_name = get_group_name_by_id(conn, group_id)
-    if not group_name:
-        await query.edit_message_text("❌ Ошибка: Группа не найдена.")
-        return
-
-    add_user_to_group(conn, group_id, user_id)
-    await query.edit_message_text(f"✅ Вы присоединились к группе '{group_name}'")
+    await query.message.reply_text(f"✅ Вы присоединились к группе '{group_name}'")
 
 async def show_groups(update: Update, context: CallbackContext) -> None:
     """Показывает список групп."""
