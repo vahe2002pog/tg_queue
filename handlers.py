@@ -7,6 +7,7 @@ from datetime import datetime
 from geopy.distance import geodesic
 
 from config import *
+from varibles import *
 from db import *
 from utils import *
 
@@ -62,40 +63,12 @@ async def change_name(update: Update, context: CallbackContext) -> int:
 
 async def create_queue_start(update: Update, context: CallbackContext) -> int:
     """Начинает процесс создания очереди (выбор группы)."""
-    conn = context.bot_data['conn']
-    user_id = update.effective_user.id
-    user_groups = get_user_groups(conn, user_id)
-    reply_markup = build_select_group_menu(user_groups)
-    await update.message.reply_text("📋 Выберите группу для очереди (или 'Без группы'):", reply_markup=reply_markup)
-    return CHOOSE_GROUP
-
-async def create_queue_choose_group(update: Update, context: CallbackContext) -> int:
-    """Обрабатывает выбор группы для очереди."""
-    query = update.callback_query
-    await query.answer()
-    group_id_str = query.data
-
-    if group_id_str == "select_group_none":
-        context.user_data['group_id'] = None
-    elif group_id_str.startswith("select_group_"):
-        try:
-            group_id = int(group_id_str.split("_")[2])
-            context.user_data['group_id'] = group_id
-        except (ValueError, IndexError):
-            await query.edit_message_text("❌ Ошибка: Неверный формат выбора группы.")
-            return CHOOSE_GROUP
-    else:
-        await query.edit_message_text("❌ Ошибка: Неподдерживаемый выбор.")
-        return CHOOSE_GROUP
-
-    await query.edit_message_text(
+    await update.message.reply_text(
         "📌 *Создание очереди*\n\n"
         "🔹 Введите *название очереди*.\n",
         parse_mode="Markdown"
     )
-    
     return QUEUE_NAME
-
 
 async def create_queue_name(update: Update, context: CallbackContext) -> int:
     """Обработчик получения названия очереди."""
@@ -179,8 +152,13 @@ async def create_queue_location(update: Update, context: CallbackContext) -> int
     if query.data == "location_mathfac":
         context.user_data['latitude'] = MF_COORDINATES[0]
         context.user_data['longitude'] = MF_COORDINATES[1]
-        await create_queue_final(update, context)
-        return ConversationHandler.END
+        # await create_queue_final(update, context)
+        conn = context.bot_data['conn']
+        user_id = update.effective_user.id
+        user_groups = get_user_groups(conn, user_id)
+        reply_markup = build_select_group_menu(user_groups)
+        await query.message.edit_text("📋 Выберите группу для очереди (или 'Без группы'):", reply_markup=reply_markup)
+        return CHOOSE_GROUP
 
     elif query.data == "location_custom":
         await query.message.edit_text(
@@ -194,8 +172,38 @@ async def create_queue_location_custom(update: Update, context: CallbackContext)
     location = update.message.location
     context.user_data['latitude'] = location.latitude
     context.user_data['longitude'] = location.longitude
-    await create_queue_final(update, context)
-    return ConversationHandler.END
+    # await create_queue_final(update, context)
+    conn = context.bot_data['conn']
+    user_id = update.effective_user.id
+    user_groups = get_user_groups(conn, user_id)
+    reply_markup = build_select_group_menu(user_groups)
+    await update.message.reply_text("📋 Выберите группу для очереди (или 'Без группы'):", reply_markup=reply_markup)
+    return CHOOSE_GROUP
+
+async def create_queue_choose_group(update: Update, context: CallbackContext) -> int:
+    """Обрабатывает выбор группы для очереди."""
+    query = update.callback_query
+    await query.answer()
+    group_id_str = query.data
+
+    if group_id_str == "select_group_none":
+        context.user_data['group_id'] = None
+        await query.edit_message_text("✅ Очередь будет без группы")
+
+    elif group_id_str.startswith("select_group_"):
+        try:
+            group_id = int(group_id_str.split("_")[2])
+            conn = context.bot_data['conn']
+            group_name = get_group_by_id(conn, group_id)["group_name"]
+            context.user_data['group_id'] = group_id
+            await query.edit_message_text(f"✅ Выбрана группа *{group_name}*", parse_mode="Markdown")
+        except (ValueError, IndexError):
+            await query.edit_message_text("❌ Ошибка: Неверный формат выбора группы.")
+            return CHOOSE_GROUP
+    else:
+        await query.edit_message_text("❌ Ошибка: Неподдерживаемый выбор.")
+        return CHOOSE_GROUP
+    return await create_queue_final(update, context)
 
 async def create_queue_final(update: Update, context: CallbackContext) -> int:
     """Завершает создание очереди (с группой или без)."""
@@ -249,10 +257,10 @@ async def create_queue_final(update: Update, context: CallbackContext) -> int:
             "🔔 Отправить уведомление участникам группы?",
             reply_markup=reply_markup
         )
-        return SEND_NOTIFICATION #Ждем ответа
+        return send_notification_choice
     else:
         #Если группы нет - сразу завершаем
-        await finish_queue_creation(update, context) #Вызываем функцию завершения
+        await finish_queue_creation(update, context)
         return ConversationHandler.END
 
 async def send_notification_choice(update: Update, context: CallbackContext) -> int:
@@ -262,9 +270,12 @@ async def send_notification_choice(update: Update, context: CallbackContext) -> 
     choice = query.data
 
     if choice == "send_notification_yes":
-        await send_group_notification(update, context)  # Отправляем уведомление
+        await query.edit_message_text("🔔 Участники группы получат уведомление.")
+        await send_group_notification(update, context) 
+    else:
+        await query.edit_message_text("🔕 Участники группы не получат уведомление.")
 
-    await finish_queue_creation(update, context)  #Завершаем в любом случае
+    await finish_queue_creation(update, context)
     return ConversationHandler.END
 
 async def send_group_notification(update:Update, context:CallbackContext):
@@ -272,6 +283,7 @@ async def send_group_notification(update:Update, context:CallbackContext):
     conn = context.bot_data['conn']
     group_id = context.user_data.get('group_id')
     queue_id = context.user_data.get('queue_id')
+    queue_creator_id = update.effective_user.id
     queue_name = context.user_data.get('queue_name')
 
     #Получаем дату и время для сообщения
@@ -289,7 +301,6 @@ async def send_group_notification(update:Update, context:CallbackContext):
         logger.info(f"Нет пользователей в группе {group_id} для уведомлений")
         return
 
-
     reply_markup = await create_join_queue_button(context, queue_id)  # кнопка
     message_text = (
         f"✅ Создана новая очередь *{queue_name}*! 🕒\n"
@@ -300,17 +311,18 @@ async def send_group_notification(update:Update, context:CallbackContext):
     )
 
     for user_id in users:
-        try:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text = message_text,
-                parse_mode="Markdown",
-                reply_markup=reply_markup,
-                link_preview_options=LinkPreviewOptions(is_disabled=True)
-            )
-            logger.info(f"Уведомление о создании {queue_id} отправлено {user_id}")
-        except Exception as e:
-            logger.error(f"Не удалось отправить уведомление {user_id} об {queue_id}: {e}")
+        if user_id != queue_creator_id:
+            try:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text = message_text,
+                    parse_mode="Markdown",
+                    reply_markup=reply_markup,
+                    link_preview_options=LinkPreviewOptions(is_disabled=True)
+                )
+                logger.info(f"Уведомление о создании {queue_id} отправлено {user_id}")
+            except Exception as e:
+                logger.error(f"Не удалось отправить уведомление {user_id} об {queue_id}: {e}")
 
 async def finish_queue_creation(update:Update, context:CallbackContext):
     """Завершающая часть создания очереди"""

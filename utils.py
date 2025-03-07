@@ -4,7 +4,8 @@ from datetime import datetime
 import logging
 from geopy.distance import geodesic
 from db import get_queue_by_id, get_queue_name_by_id, add_user_to_queue, get_queue_users_names, get_queue_users_ids, get_user_name
-from config import GMT_PLUS_5, max_distance, GET_LOCATION_URL
+from config import GET_LOCATION_URL
+from varibles import GMT_PLUS_5, max_distance
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,6 @@ async def send_queue_created_message(update, context, queue_name, start_time, re
         f"✅ Очередь *{queue_name}* успешно создана! 🕒\n"
         f"📆 Дата: *{start_time.strftime('%d.%m.%y')}*\n"
         f"⏰ Время: *{start_time.strftime('%H:%M')}*\n\n"
-        f"📍 *Локация:* (смотрите выше)\n\n"
         f"➡ *Нажмите кнопку, чтобы присоединиться!*",
         parse_mode="Markdown",
         reply_markup=reply_markup,

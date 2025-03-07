@@ -10,6 +10,7 @@ from telegram.ext import (
 )
 
 from config import *
+from varibles import *
 from db import create_connection, create_tables
 
 # Настройка логирования
@@ -43,7 +44,6 @@ def main():
     create_queue_handler = ConversationHandler(
         entry_points=[CommandHandler("create_queue", create_queue_start)],
         states={
-            CHOOSE_GROUP: [CallbackQueryHandler(create_queue_choose_group, pattern="^select_group_.*")],
             QUEUE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_queue_name)],
             QUEUE_DATE: [MessageHandler(filters.TEXT, create_queue_date)],
             QUEUE_TIME: [MessageHandler(filters.TEXT, create_queue_time)],
@@ -51,6 +51,7 @@ def main():
                 CallbackQueryHandler(create_queue_location, pattern="^location_(mathfac|custom)$"),
                 MessageHandler(filters.LOCATION, create_queue_location_custom),
             ],
+            CHOOSE_GROUP: [CallbackQueryHandler(create_queue_choose_group, pattern="^select_group_.*")],
             SEND_NOTIFICATION: [CallbackQueryHandler(send_notification_choice, pattern="^send_notification_(yes|no)$")]
         },
         fallbacks=[CommandHandler("cancel", cancel)],

@@ -1,9 +1,7 @@
-# db.py
-
 import sqlite3
 import logging
-from datetime import datetime, timezone, timedelta
-from config import DATABASE_NAME, GMT_PLUS_5
+from datetime import datetime
+from config import DATABASE_NAME
 
 logger = logging.getLogger(__name__)
 
