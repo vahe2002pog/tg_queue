@@ -1,2 +1,3 @@
 python-telegram-bot
 geopy
+python-telegram-bot[job-queue]
