@@ -242,7 +242,6 @@ async def create_queue_final(update: Update, context: CallbackContext) -> int:
     context.user_data['location_message_id'] = location_message.message_id
     context.user_data['queue_id'] = queue_id
 
-    #Если группа есть - спросить про уведомление
     if group_id:
         keyboard = [
             [InlineKeyboardButton("✅ Да", callback_data="send_notification_yes")],
@@ -255,7 +254,7 @@ async def create_queue_final(update: Update, context: CallbackContext) -> int:
             "🔔 Отправить уведомление участникам группы?",
             reply_markup=reply_markup
         )
-        return send_notification_choice
+        return SEND_NOTIFICATION
     else:
         #Если группы нет - сразу завершаем
         await finish_queue_creation(update, context)
