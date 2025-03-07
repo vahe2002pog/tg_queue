@@ -7,22 +7,8 @@ from datetime import datetime
 from geopy.distance import geodesic
 
 from config import *
-from db import (
-     update_user_state, get_user_data, set_user_name, update_user_name,
-    get_all_queues, get_user_created_queues, get_queue_by_id, get_queue_name_by_id, get_queue_id_by_name,
-    get_queue_users_names, get_queue_users_ids, get_user_name, is_user_in_queue, get_user_queues,
-    delete_queue, swap_queue_users,  insert_queue, remove_user_from_queue,
-    insert_broadcast, get_broadcasts, delete_broadcast, insert_group, get_group_by_id,
-    get_user_groups, add_user_to_group, remove_user_from_group, get_group_users,
-    get_group_name_by_id, get_all_groups, update_queue_group_id, get_queues_by_group, get_queue_group_id, delete_group_db
-)
-from utils import (
-    build_main_menu, build_location_menu, validate_date,
-    validate_time, check_distance_and_join, create_join_queue_button,
-    send_queue_created_message, build_queues_menu, build_delete_queue_menu, build_leave_queue_menu,
-    build_skip_turn_menu, build_queue_info_menu, generate_queue_info_message, build_web_app_location_button,
-    build_group_menu, build_select_group_menu, build_leave_group_menu, build_menu, build_delete_group_menu
-)
+from db import *
+from utils import *
 
 logger = logging.getLogger(__name__)
 
@@ -211,7 +197,7 @@ async def create_queue_location_custom(update: Update, context: CallbackContext)
     await create_queue_final(update, context)
     return ConversationHandler.END
 
-async def create_queue_final(update: Update, context: CallbackContext) -> None:
+async def create_queue_final(update: Update, context: CallbackContext) -> int:
     """Завершает создание очереди (с группой или без)."""
     name = context.user_data['queue_name']
     date_str = context.user_data['queue_date']
@@ -256,9 +242,11 @@ async def create_queue_final(update: Update, context: CallbackContext) -> None:
             [InlineKeyboardButton("✅ Да", callback_data="send_notification_yes")],
             [InlineKeyboardButton("❌ Нет", callback_data="send_notification_no")]
         ]
+        logger.debug(update)
+
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.effective_message.reply_text(
-            "Отправить уведомление участникам группы?",
+            "🔔 Отправить уведомление участникам группы?",
             reply_markup=reply_markup
         )
         return SEND_NOTIFICATION #Ждем ответа
@@ -721,7 +709,7 @@ async def help_command(update: Update, context: CallbackContext) -> None:
 async def cancel(update: Update, context: CallbackContext) -> int:
     """Отменяет текущую команду и очищает данные."""
     context.user_data.clear()
-    await update.message.reply_text("❌ Действие отменено.",  parse_mode="Markdown") #reply_markup=ReplyKeyboardRemove(),
+    await update.message.reply_text("❌ Действие отменено.",  parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
 async def set_commands(app):

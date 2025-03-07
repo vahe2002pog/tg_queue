@@ -2,19 +2,7 @@ import logging
 from telegram.ext import ApplicationBuilder, Defaults
 from telegram import  LinkPreviewOptions, Update
 import asyncio
-from handlers import (
-    start, set_name, change_name_start, change_name, create_queue_start,
-    create_queue_name, create_queue_date, create_queue_time,
-    create_queue_location, create_queue_location_custom, create_queue_final,
-    handle_deeplink, delete_queue_job, delete_queue_start, delete_queue_button,
-    leave_queue, leave_button, skip_turn, skip_button, queue_info,
-    queue_info_button, show_queues, handle_web_app_data, ask_location,
-    main_menu_buttons, unknown, help_command,
-    cancel, set_commands, load_scheduled_broadcasts, start_broadcast, broadcast_message,
-    broadcast_targets, broadcast_schedule, send_broadcast, create_group_start, create_group_name, join_group, show_groups,
-    create_queue_choose_group, leave_group_button, leave_group_command,
-    send_notification_choice, broadcast_group_select, delete_group_button, delete_group_start
-)
+from handlers import *
 
 from telegram.ext import (
      CommandHandler,  CallbackQueryHandler, MessageHandler,
@@ -63,8 +51,7 @@ def main():
                 CallbackQueryHandler(create_queue_location, pattern="^location_(mathfac|custom)$"),
                 MessageHandler(filters.LOCATION, create_queue_location_custom),
             ],
-            SEND_NOTIFICATION:[CallbackQueryHandler(send_notification_choice, pattern="^send_notification_(yes|no)")]
-
+            SEND_NOTIFICATION: [CallbackQueryHandler(send_notification_choice, pattern="^send_notification_(yes|no)$")]
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
