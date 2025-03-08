@@ -76,14 +76,25 @@ def main():
         )
     application.add_handler(create_group_handler)
 
-    broadcast_handler = ConversationHandler(
+    # broadcast_handler = ConversationHandler(
+    #     entry_points=[CommandHandler("broadcast", start_broadcast)],
+    #     states={
+    #         BROADCAST_MESSAGE: [MessageHandler(filters.TEXT | filters.PHOTO, broadcast_message)],
+    #         BROADCAST_TARGETS: [
+    #             MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_targets),  # Ввод ID вручную
+    #             CallbackQueryHandler(broadcast_group_select, pattern="^broadcast_group_") # Выбор группы
+    #         ],
+    #         BROADCAST_SCHEDULE: [MessageHandler(filters.TEXT, broadcast_schedule)],
+    #     },
+    #     fallbacks=[CommandHandler("cancel", cancel)],
+    # )
+    # application.add_handler(broadcast_handler)
+
+    broadcast_handler = ConversationHandler( #Рассылка
         entry_points=[CommandHandler("broadcast", start_broadcast)],
         states={
             BROADCAST_MESSAGE: [MessageHandler(filters.TEXT | filters.PHOTO, broadcast_message)],
-            BROADCAST_TARGETS: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_targets),  # Ввод ID вручную
-                CallbackQueryHandler(broadcast_group_select, pattern="^broadcast_group_") # Выбор группы
-            ],
+            BROADCAST_TARGETS: [MessageHandler(filters.TEXT, broadcast_targets)],
             BROADCAST_SCHEDULE: [MessageHandler(filters.TEXT, broadcast_schedule)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
