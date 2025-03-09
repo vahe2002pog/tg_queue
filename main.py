@@ -120,6 +120,20 @@ def main():
     # Добавляем обработчик в приложение
     application.add_handler(broadcast_handler)
 
+    # ConversationHandler для удаления рассылок
+    delete_broadcast_handler = ConversationHandler(
+        entry_points=[CommandHandler("delete_broadcast", delete_broadcast_start)],
+        states={
+            DELETE_BROADCAST: [
+                CallbackQueryHandler(delete_broadcast_confirm, pattern="^delete_broadcast_")
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    # Добавляем обработчик в приложение
+    application.add_handler(delete_broadcast_handler)
+
     start_conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={

@@ -708,6 +708,8 @@ async def help_command(update: Update, context: CallbackContext) -> None:
         "/create_group - Создать группу\n"
         "/delete_group - Удалить группу\n"
         "/show_groups - Показать список групп\n"
+        "/broadcast - Создать рассылку\n"
+        "/delete_broadcast - Удалить рассылку\n"
         "/leave_group - Покинуть группу\n"
         "/help - Помощь (список команд)\n"
     )
@@ -733,6 +735,8 @@ async def set_commands(app):
         BotCommand("help", "Помощь"),
         BotCommand("create_group", "Создать группу"),
         BotCommand("delete_group", "Удалить группу"),
+        BotCommand("broadcast", "Создать рассылку"),
+        BotCommand("delete_broadcast", "Удалить рассылку"),
         BotCommand("show_groups", "Показать группы"),
         BotCommand("leave_group", "Покинуть группу"),
     ]
@@ -841,6 +845,7 @@ async def broadcast_recipients_input(update: Update, context: CallbackContext) -
 async def broadcast_schedule(update: Update, context: CallbackContext) -> int:
     """Обрабатывает время отправки рассылки."""
     conn = context.bot_data['conn']
+    user_id = update.effective_user.id
 
     if update.message.text.lower() == "/now":
         send_time = datetime.now(GMT_PLUS_5)
@@ -865,7 +870,8 @@ async def broadcast_schedule(update: Update, context: CallbackContext) -> int:
         message_photo=next((msg['content'] for msg in context.user_data['broadcast_messages'] if msg['type'] == "photo"), None),
         message_document=next((msg['content'] for msg in context.user_data['broadcast_messages'] if msg['type'] == "document"), None),
         recipients=recipients,
-        send_time=send_time
+        send_time=send_time,
+        creator_id=user_id
     )
 
     if send_time == datetime.now(GMT_PLUS_5):
@@ -904,16 +910,18 @@ async def send_broadcast(context: CallbackContext) -> None:
     data = context.job.data
 
     broadcast_id = data['broadcast_id']
-    messages = data['messages']  # Список сообщений в порядке их получения
+    messages = data['messages']
     recipients = data.get('recipients', '')
 
-    # Получаем список получателей
-    if recipients == "all":
-        cursor = conn.cursor()
-        cursor.execute("SELECT user_id FROM users")
-        user_ids = [row[0] for row in cursor.fetchall()]
-    else:
-        user_ids = list(map(int, recipients.split(",")))
+    # Проверяем, не была ли рассылка удалена
+    cursor = conn.cursor()
+    cursor.execute("SELECT is_deleted FROM broadcasts WHERE id = ?", (broadcast_id,))
+    result = cursor.fetchone()
+    if result and result[0]:  # Если рассылка помечена как удаленная
+        logger.info(f"Рассылка #{broadcast_id} была удалена и не будет отправлена.")
+        return
+
+    user_ids = list(map(int, recipients.split(",")))
 
     # Отправляем сообщения в том же порядке
     for user_id in user_ids:
@@ -928,8 +936,8 @@ async def send_broadcast(context: CallbackContext) -> None:
             except Exception as e:
                 logger.error(f"Ошибка при отправке рассылки пользователю {user_id}: {e}")
 
-    # Удаляем рассылку из базы данных
-    delete_broadcast(conn, broadcast_id)
+    # Помечаем рассылку как удаленную
+    mark_broadcast_as_deleted(conn, broadcast_id)
 
 async def load_scheduled_broadcasts(job_queue: JobQueue):
     """Загружает запланированные рассылки при запуске бота."""
@@ -938,11 +946,20 @@ async def load_scheduled_broadcasts(job_queue: JobQueue):
 
     for broadcast in broadcasts:
         broadcast_id, message_text, message_photo, message_document, recipients, send_time_str = broadcast
+
+        # Проверяем, не была ли рассылка удалена
+        cursor = conn.cursor()
+        cursor.execute("SELECT is_deleted FROM broadcasts WHERE id = ?", (broadcast_id,))
+        result = cursor.fetchone()
+        if result and result[0]:  # Если рассылка помечена как удаленная
+            logger.info(f"Рассылка #{broadcast_id} была удалена и не будет запланирована.")
+            continue
+
         send_time = datetime.fromisoformat(send_time_str).replace(tzinfo=GMT_PLUS_5)
 
         # Если время рассылки уже прошло, удаляем её из базы данных
         if send_time < datetime.now(GMT_PLUS_5):
-            delete_broadcast(conn, broadcast_id)
+            mark_broadcast_as_deleted(conn, broadcast_id)
             continue
 
         # Создаем список сообщений в порядке их получения
@@ -968,6 +985,54 @@ async def load_scheduled_broadcasts(job_queue: JobQueue):
             }
         )
         logger.info(f"Рассылка #{broadcast_id} запланирована на {send_time}.")
+
+async def delete_broadcast_start(update: Update, context: CallbackContext) -> int:
+    """Начинает процесс удаления рассылки."""
+    user_id = update.effective_user.id
+    conn = context.bot_data['conn']
+
+    # Получаем список рассылок
+    if user_id == ADMIN_ID:
+        broadcasts = get_broadcasts(conn)  # Для админа — все рассылки
+    else:
+        broadcasts = get_broadcasts(conn, user_id)  # Для обычного пользователя — только его рассылки
+
+    if not broadcasts:
+        await update.message.reply_text("❌ Нет доступных рассылок для удаления.")
+        return ConversationHandler.END
+
+    # Создаем меню с рассылками
+    buttons = []
+    for broadcast in broadcasts:
+        broadcast_id, message_text, message_photo, message_document, recipients, send_time = broadcast
+        # Формируем название рассылки
+        if message_text:
+            name = " ".join(message_text.split()[:2])  # Первые 2 слова текста
+            if len(name) > 16:
+                name = name[:16] + "..."
+        elif message_photo:
+            name = "Фото"
+        elif message_document:
+            name = "Файл"
+        else:
+            name = "Рассылка"
+        buttons.append(InlineKeyboardButton(name, callback_data=f"delete_broadcast_{broadcast_id}"))
+
+    reply_markup = InlineKeyboardMarkup([buttons])
+    await update.message.reply_text("📋 Выберите рассылку для удаления:", reply_markup=reply_markup)
+    return DELETE_BROADCAST
+
+async def delete_broadcast_confirm(update: Update, context: CallbackContext) -> int:
+    """Обрабатывает выбор рассылки для удаления."""
+    query = update.callback_query
+    await query.answer()
+    broadcast_id = int(query.data.split("_")[2])
+    conn = context.bot_data['conn']
+
+    # Помечаем рассылку как удаленную
+    mark_broadcast_as_deleted(conn, broadcast_id)
+    await query.edit_message_text("✅ Рассылка успешно удалена.")
+    return ConversationHandler.END
 
 async def create_group_start(update: Update, context: CallbackContext) -> int:
     """Начинает процесс создания группы."""

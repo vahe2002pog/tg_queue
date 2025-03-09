@@ -1,7 +1,7 @@
 import sqlite3
 import logging
 from datetime import datetime
-from config import DATABASE_NAME
+from config import DATABASE_NAME, ADMIN_ID
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,9 @@ def create_tables(conn):
                 message_photo TEXT,
                 message_document TEXT,
                 recipients TEXT,
-                send_time TEXT
+                send_time TEXT,
+                creator_id INTEGER,
+                is_deleted BOOLEAN DEFAULT FALSE
             )
         """)
         cursor.execute("""
@@ -474,13 +476,36 @@ def remove_user_from_queue(conn, queue_id: int, user_id: int):
     except sqlite3.Error as e:
         logger.error(f"Ошибка при удалении пользователя из очереди: {e}")
         
-def insert_broadcast(conn, message_text: str, message_photo: str, message_document: str, recipients: str, send_time: datetime):
+def get_broadcasts(conn, user_id: int = None):
+    """Получает список активных рассылок из базы данных."""
+    try:
+        cursor = conn.cursor()
+        if user_id:
+            # Для обычного пользователя — только его рассылки
+            cursor.execute("""
+                SELECT id, message_text, message_photo, message_document, recipients, send_time 
+                FROM broadcasts 
+                WHERE creator_id = ? AND is_deleted = FALSE
+            """, (user_id,))
+        else:
+            # Для админа — все активные рассылки
+            cursor.execute("""
+                SELECT id, message_text, message_photo, message_document, recipients, send_time 
+                FROM broadcasts 
+                WHERE is_deleted = FALSE
+            """)
+        return cursor.fetchall()
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при получении рассылок: {e}")
+        return []
+    
+def insert_broadcast(conn, message_text: str, message_photo: str, message_document: str, recipients: str, send_time: datetime, creator_id: int):
     """Вставляет данные о рассылке в базу данных."""
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO broadcasts (message_text, message_photo, message_document, recipients, send_time) VALUES (?, ?, ?, ?, ?)",
-            (message_text, message_photo, message_document, recipients, send_time.isoformat())
+            "INSERT INTO broadcasts (message_text, message_photo, message_document, recipients, send_time, creator_id) VALUES (?, ?, ?, ?, ?, ?)",
+            (message_text, message_photo, message_document, recipients, send_time.isoformat(), creator_id)
         )
         conn.commit()
         return cursor.lastrowid
@@ -488,24 +513,15 @@ def insert_broadcast(conn, message_text: str, message_photo: str, message_docume
         logger.error(f"Ошибка при добавлении рассылки: {e}")
         return None
 
-def get_broadcasts(conn):
-    """Получает список всех рассылок из базы данных."""
+def mark_broadcast_as_deleted(conn, broadcast_id: int):
+    """Помечает рассылку как удаленную."""
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, message_text, message_photo, message_document, recipients, send_time FROM broadcasts")
-        return cursor.fetchall()
-    except sqlite3.Error as e:
-        logger.error(f"Ошибка при получении рассылок: {e}")
-        return []
-
-def delete_broadcast(conn, broadcast_id: int):
-    """Удаляет рассылку из базы данных."""
-    try:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM broadcasts WHERE id = ?", (broadcast_id,))
+        cursor.execute("UPDATE broadcasts SET is_deleted = TRUE WHERE id = ?", (broadcast_id,))
         conn.commit()
+        logger.info(f"Рассылка #{broadcast_id} помечена как удаленная.")
     except sqlite3.Error as e:
-        logger.error(f"Ошибка при удалении рассылки: {e}")
+        logger.error(f"Ошибка при пометке рассылки как удаленной: {e}")
 
 def insert_queue(conn, queue_name: str, start_time: datetime, latitude: float, longitude: float, creator_id: int):
     """Вставляет данные о новой очереди в базу данных."""
