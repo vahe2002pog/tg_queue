@@ -5,7 +5,7 @@ import logging
 from geopy.distance import geodesic
 from db import get_queue_by_id, get_queue_name_by_id, add_user_to_queue, get_queue_users_names, get_queue_users_ids, get_user_name
 from config import GET_LOCATION_URL
-from varibles import GMT_PLUS_5, max_distance
+from varibles import GMT_PLUS_5, MAX_DISTANCE
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ async def check_distance_and_join(update, context, queue_id, user_id, lat, lon):
         )
     context.user_data['location_message_id'] = location_message.message_id
 
-    if distance <= max_distance:
+    if distance <= MAX_DISTANCE:
         join_time = datetime.now(GMT_PLUS_5).isoformat()
         add_user_to_queue(context.bot_data['conn'], queue_id, user_id, join_time)  # Corrected
         await update.message.reply_text(f"✅ Вы записаны в очередь {queue['queue_name']}.", reply_markup=ReplyKeyboardRemove())

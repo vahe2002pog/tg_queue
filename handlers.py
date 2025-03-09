@@ -699,21 +699,22 @@ async def help_command(update: Update, context: CallbackContext) -> None:
     help_text = (
         "/start - Начать (ввод имени)\n"
         "/cancel - Отменить\n"
-        "/create_queue - Создать очередь\n"
-        "/delete_queue - Удалить очередь\n"
-        "/leave - Покинуть очередь\n"
-        "/skip - Пропустить ход в очереди\n"
         "/queue_info - Список людей в очереди\n"
         "/show_queues - Показать доступные очереди\n"
+        "/leave - Покинуть очередь\n"
+        "/skip - Пропустить ход в очереди\n"
+        "/create_queue - Создать очередь\n"
+        "/delete_queue - Удалить очередь\n"
         "/create_group - Создать группу\n"
         "/delete_group - Удалить группу\n"
+        "/leave_group - Покинуть группу\n"
         "/show_groups - Показать список групп\n"
         "/broadcast - Создать рассылку\n"
         "/delete_broadcast - Удалить рассылку\n"
-        "/leave_group - Покинуть группу\n"
-        "/help - Помощь (список команд)\n"
+        f"По всем вопросам писать {ADMIN_USER_ID}\n"
+        "Но лучше, конечно, не писать\n"
     )
-    await update.message.reply_text(help_text)
+    await update.message.reply_text(help_text, parse_mode=None)
 
 async def cancel(update: Update, context: CallbackContext) -> int:
     """Отменяет текущую команду и очищает данные."""
@@ -732,13 +733,13 @@ async def set_commands(app):
         BotCommand("skip", "Пропустить ход"),
         BotCommand("create_queue", "Создать очередь"),
         BotCommand("delete_queue", "Удалить очередь"),
-        BotCommand("help", "Помощь"),
         BotCommand("create_group", "Создать группу"),
         BotCommand("delete_group", "Удалить группу"),
+        BotCommand("leave_group", "Покинуть группу"),
+        BotCommand("show_groups", "Показать группы"),
         BotCommand("broadcast", "Создать рассылку"),
         BotCommand("delete_broadcast", "Удалить рассылку"),
-        BotCommand("show_groups", "Показать группы"),
-        BotCommand("leave_group", "Покинуть группу"),
+        BotCommand("help", "Помощь"),
     ]
     try:
         await app.bot.set_my_commands(commands)
