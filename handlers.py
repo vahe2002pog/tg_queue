@@ -24,7 +24,7 @@ async def start(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
         return ConversationHandler.END 
     else:
-        await update.message.reply_text("Привет! Пожалуйста, введите ваше *имя*:", parse_mode="Markdown")
+        await update.message.reply_text("Привет! Пожалуйста, введите ваше *имя*:")
         context.user_data['state'] = WAITING_FOR_NAME 
         return WAITING_FOR_NAME 
 
@@ -34,14 +34,14 @@ async def set_name(update: Update, context: CallbackContext) -> int:
     user_name = update.message.text
     conn = context.bot_data['conn']
     set_user_name(conn, user_id, user_name)
-    await update.message.reply_text(f"✅ Ваше имя *{user_name}* сохранено.", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ Ваше имя *{user_name}* сохранено.")
     reply_markup = build_main_menu()
     await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
     return ConversationHandler.END
 
 async def change_name_start(update: Update, context: CallbackContext) -> None:
     """Обработчик начала смены имени."""
-    await update.callback_query.message.reply_text("🔄 Пожалуйста, введите новое *имя*:", parse_mode="Markdown")
+    await update.callback_query.message.reply_text("🔄 Пожалуйста, введите новое *имя*:")
     return CHANGE_NAME
 
 async def change_name(update: Update, context: CallbackContext) -> int:
@@ -52,7 +52,7 @@ async def change_name(update: Update, context: CallbackContext) -> int:
     conn = context.bot_data['conn']
 
     update_user_name(conn, user_id, new_name)
-    await update.message.reply_text(f"✅ Ваше имя изменено на *{new_name}*.", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ Ваше имя изменено на *{new_name}*.")
     update_user_state(conn, user_id, "name_entered")
 
     reply_markup = build_main_menu()
@@ -64,7 +64,7 @@ async def create_queue_start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(
         "📌 *Создание очереди*\n\n"
         "🔹 Введите *название очереди*.\n",
-        parse_mode="Markdown"
+        
     )
     return QUEUE_NAME
 
@@ -75,7 +75,7 @@ async def create_queue_name(update: Update, context: CallbackContext) -> int:
         f"✅ *Название очереди:* `{update.message.text}`\n\n"
         "📅 Теперь введите *дату начала* в формате _ДД.ММ.ГГ_.\n"
         "📆 Чтобы выбрать *сегодняшнюю дату*, введите /today.\n",
-        parse_mode="Markdown"
+        
     )
     return QUEUE_DATE
 
@@ -90,7 +90,7 @@ async def create_queue_date(update: Update, context: CallbackContext) -> int:
             f"✅ *Дата выбрана:* `{today}` 📆\n\n"
             "🕒 Теперь введите *время начала* в формате _ЧЧ:ММ_.\n"
             "⏰ Чтобы выбрать *текущее время*, введите /now.\n",
-            parse_mode="Markdown"
+            
         )
         return QUEUE_TIME
 
@@ -98,7 +98,7 @@ async def create_queue_date(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text(
             "⚠️ *Ошибка:* Неверный формат даты.\n\n"
             "📅 Пожалуйста, используйте _ДД.ММ.ГГ_ или введите /today для выбора сегодняшней даты.",
-            parse_mode="Markdown"
+            
         )
         return QUEUE_DATE
 
@@ -107,7 +107,7 @@ async def create_queue_date(update: Update, context: CallbackContext) -> int:
         "📅 *Дата сохранена!* ✅\n\n"
         "🕒 Теперь введите *время начала* в формате _ЧЧ:ММ_.\n"
         "⏰ Чтобы выбрать *текущее время*, введите /now.\n",
-        parse_mode="Markdown"
+        
     )
     return QUEUE_TIME
 
@@ -121,14 +121,14 @@ async def create_queue_time(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text(
             f"✅ *Выбрано текущее время:* `{now_time}` ⏰\n\n"
             "📍 Теперь выберите *местоположение очереди*:",
-            parse_mode="Markdown"
+            
         )
     else:
         if not validate_time(update.message.text):
             await update.message.reply_text(
                 "⚠️ *Ошибка:* Неверный формат времени.\n\n"
                 "⏰ Пожалуйста, используйте _ЧЧ:ММ_ или введите /now для выбора текущего времени.",
-                parse_mode="Markdown"
+                
             )
             return QUEUE_TIME
 
@@ -138,7 +138,7 @@ async def create_queue_time(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(
         "🌍 *Выберите местоположение очереди:*",
         reply_markup=reply_markup,
-        parse_mode="Markdown"
+        
     )
     return CHOOSE_LOCATION
 
@@ -161,7 +161,7 @@ async def create_queue_location(update: Update, context: CallbackContext) -> int
     elif query.data == "location_custom":
         await query.message.edit_text(
             "📍 *Пожалуйста, отправьте вашу геолокацию* для создания очереди:",
-            parse_mode="Markdown"
+            
         )
         return CHOOSE_LOCATION
 
@@ -194,7 +194,7 @@ async def create_queue_choose_group(update: Update, context: CallbackContext) ->
             conn = context.bot_data['conn']
             group_name = get_group_by_id(conn, group_id)["group_name"]
             context.user_data['group_id'] = group_id
-            await query.edit_message_text(f"✅ Выбрана группа *{group_name}*", parse_mode="Markdown")
+            await query.edit_message_text(f"✅ Выбрана группа *{group_name}*")
         except (ValueError, IndexError):
             await query.edit_message_text("❌ Ошибка: Неверный формат выбора группы.")
             return CHOOSE_GROUP
@@ -218,7 +218,7 @@ async def create_queue_final(update: Update, context: CallbackContext) -> int:
     except ValueError:
         await update.effective_message.reply_text(
             "❌ *Ошибка:* Неверный формат даты или времени. Пожалуйста, проверьте ввод.",
-            parse_mode="Markdown"
+            
         )
         return ConversationHandler.END
 
@@ -304,8 +304,7 @@ async def send_group_notification(update:Update, context:CallbackContext):
         f"📆 Дата: *{start_time.strftime('%d.%m.%y')}*\n"
         f"⏰ Время: *{start_time.strftime('%H:%M')}*\n\n"
         f"📍 *Локация:* (смотрите выше)\n\n"
-        f"➡ *Нажмите кнопку, чтобы присоединиться!*"
-    )
+        f"➡ *Нажмите кнопку, чтобы присоединиться!*")
 
     for user_id in users:
         if user_id != queue_creator_id:
@@ -313,7 +312,6 @@ async def send_group_notification(update:Update, context:CallbackContext):
                 await context.bot.send_message(
                     chat_id=user_id,
                     text = message_text,
-                    parse_mode="Markdown",
                     reply_markup=reply_markup,
                     link_preview_options=LinkPreviewOptions(is_disabled=True)
                 )
@@ -376,7 +374,7 @@ async def handle_deeplink(update: Update, context: CallbackContext) -> None:
             if not get_user_data(conn, user_id):
                 await update.message.reply_text(
                     "📌 Для начала введите ваше *имя* с помощью команды /start.",
-                    parse_mode="Markdown"
+                    
                 )
                 return
 
@@ -397,7 +395,7 @@ async def delete_queue_job(context: CallbackContext) -> None:
         return
 
     delete_queue(conn, queue_id)
-    await context.bot.send_message(ADMIN_ID, f"✅ Очередь {queue_name} (ID {queue_id}) была автоматически удалена.", parse_mode="Markdown")
+    await context.bot.send_message(ADMIN_ID, f"✅ Очередь {queue_name} (ID {queue_id}) была автоматически удалена.")
     logger.info(f"Очередь {queue_name} (ID {queue_id}) была автоматически удалена.")
 
 async def delete_queue_start(update: Update, context: CallbackContext) -> None:
@@ -411,7 +409,7 @@ async def delete_queue_start(update: Update, context: CallbackContext) -> None:
         return
 
     reply_markup = build_delete_queue_menu(queues_list)
-    await update.message.reply_text("📋 Выберите очередь для *удаления*:", reply_markup=reply_markup, parse_mode="Markdown")
+    await update.message.reply_text("📋 Выберите очередь для *удаления*:", reply_markup=reply_markup)
 
 async def delete_queue_button(update: Update, context: CallbackContext) -> None:
     """Обрабатывает нажатие кнопки удаления очереди."""
@@ -437,7 +435,7 @@ async def delete_queue_button(update: Update, context: CallbackContext) -> None:
         return
 
     delete_queue(conn, queue_id)
-    await query.edit_message_text(f"✅ Очередь *{queue_name}* успешно удалена.", parse_mode="Markdown")
+    await query.edit_message_text(f"✅ Очередь *{queue_name}* успешно удалена.")
 
 async def leave_queue(update: Update, context: CallbackContext) -> None:
     """Показывает очереди, в которых состоит пользователь, для выхода."""
@@ -445,7 +443,7 @@ async def leave_queue(update: Update, context: CallbackContext) -> None:
     conn = context.bot_data['conn']
 
     if not get_user_data(conn, user_id):
-        await update.message.reply_text("📌 Сначала введите ваше *имя* /start.", parse_mode="Markdown")
+        await update.message.reply_text("📌 Сначала введите ваше *имя* /start.")
         return
 
     user_queues = get_user_queues(conn, user_id)
@@ -471,7 +469,7 @@ async def leave_button(update: Update, context: CallbackContext) -> None:
         return
 
     remove_user_from_queue(conn, queue_id, user_id)
-    await query.edit_message_text(f"✅ Вы вышли из очереди: *{queue_name}*.", parse_mode="Markdown")
+    await query.edit_message_text(f"✅ Вы вышли из очереди: *{queue_name}*.")
 
 async def skip_turn(update: Update, context: CallbackContext) -> None:
     """Показывает очереди пользователя для пропуска хода."""
@@ -479,7 +477,7 @@ async def skip_turn(update: Update, context: CallbackContext) -> None:
     conn = context.bot_data['conn']
 
     if not get_user_data(conn, user_id):
-        await update.message.reply_text("📌 Сначала введите ваше *имя* /start.", parse_mode="Markdown")
+        await update.message.reply_text("📌 Сначала введите ваше *имя* /start.")
         return
 
     user_queues = get_user_queues(conn, user_id)
@@ -488,7 +486,7 @@ async def skip_turn(update: Update, context: CallbackContext) -> None:
         return
 
     reply_markup = build_skip_turn_menu(user_queues)
-    await update.message.reply_text("Выберите очередь, чтобы *пропустить* ход:", reply_markup=reply_markup, parse_mode="Markdown")
+    await update.message.reply_text("Выберите очередь, чтобы *пропустить* ход:", reply_markup=reply_markup)
 
 async def skip_button(update: Update, context: CallbackContext) -> None:
     """Обрабатывает нажатие кнопки пропуска хода."""
@@ -531,8 +529,8 @@ async def skip_button(update: Update, context: CallbackContext) -> None:
         user2_name = get_user_name(conn, user2_id)
 
         if user2_name:
-            await query.edit_message_text(f"✅ Вы пропустили ход. Теперь после *{user2_name}*.", parse_mode="Markdown")
-            await context.bot.send_message(chat_id=user2_id, text=f"ℹ️ Теперь вы перед *{user_name}* в '{queue_name}'.", parse_mode="Markdown")
+            await query.edit_message_text(f"✅ Вы пропустили ход. Теперь после *{user2_name}*.")
+            await context.bot.send_message(chat_id=user2_id, text=f"ℹ️ Теперь вы перед *{user_name}* в '{queue_name}'.")
     else:
         await query.edit_message_text("❌ Вы в конце очереди, нельзя пропустить.")
 
@@ -542,7 +540,7 @@ async def queue_info(update: Update, context: CallbackContext) -> None:
     conn = context.bot_data['conn']
 
     if not get_user_data(conn, user_id):
-        await update.message.reply_text("📌 Сначала введите ваше *имя* /start.", parse_mode="Markdown")
+        await update.message.reply_text("📌 Сначала введите ваше *имя* /start.")
         return
 
     user_queues = get_user_queues(conn, user_id)
@@ -663,7 +661,7 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
         return
 
     if queue["start_time"] > datetime.now(GMT_PLUS_5):
-        await message.reply_text(f"⚠️ Запись начнется *{queue['start_time'].strftime('%d.%m.%Y %H:%M')}* ⏰", parse_mode="Markdown")
+        await message.reply_text(f"⚠️ Запись начнется *{queue['start_time'].strftime('%d.%m.%Y %H:%M')}* ⏰")
         return
 
     context.user_data["expecting_location_for"] = queue_id
@@ -677,7 +675,7 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
     sent_message = await message.reply_text(
         f"📌 Для записи в '{queue_name}', нажмите *кнопку* и отправьте геолокацию 📍:",
         reply_markup=reply_markup,
-        parse_mode="Markdown"
+        
     )
     context.user_data["location_message_id"] = sent_message.message_id
 
@@ -718,7 +716,7 @@ async def help_command(update: Update, context: CallbackContext) -> None:
 async def cancel(update: Update, context: CallbackContext) -> int:
     """Отменяет текущую команду и очищает данные."""
     context.user_data.clear()
-    await update.message.reply_text("❌ Действие отменено.",  parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text("❌ Действие отменено.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
 async def set_commands(app):
@@ -811,7 +809,7 @@ async def broadcast_choose_group(update: Update, context: CallbackContext) -> in
             conn = context.bot_data['conn']
             group_name = get_group_by_id(conn, group_id)["group_name"]
             context.user_data['group_id'] = group_id
-            await query.edit_message_text(f"✅ Выбрана группа *{group_name}*", parse_mode="Markdown")
+            await query.edit_message_text(f"✅ Выбрана группа *{group_name}*")
         except (ValueError, IndexError):
             await query.edit_message_text("❌ Ошибка: Неверный формат выбора группы.")
             return BROADCAST_RECIPIENTS
@@ -970,270 +968,6 @@ async def load_scheduled_broadcasts(job_queue: JobQueue):
             }
         )
         logger.info(f"Рассылка #{broadcast_id} запланирована на {send_time}.")
-# async def load_scheduled_broadcasts(job_queue: JobQueue):
-#     """Загружает запланированные рассылки при запуске."""
-#     conn = job_queue.application.bot_data['conn']
-#     for row in get_broadcasts(conn):
-#         broadcast_id, text, photo, recipients, send_time_str = row
-#         send_time = datetime.fromisoformat(send_time_str).replace(tzinfo=GMT_PLUS_5)
-#         delay = (send_time - datetime.now(GMT_PLUS_5)).total_seconds()
-
-#         if delay > 0:
-#             job_queue.run_once(send_broadcast, delay, data={
-#                 'broadcast_id': broadcast_id,
-#                 'broadcast_text': text if text else '',
-#                 'broadcast_photo': photo if photo else '',
-#                 'broadcast_targets': recipients
-#             })
-
-# def load_scheduled_broadcasts(context):
-#     """Синхронная функция для загрузки запланированных рассылок."""
-#     job_queue = context.job_queue
-#     conn = job_queue.application.bot_data['conn']
-#     for row in get_broadcasts(conn):
-#         broadcast_id, text, photo, recipients, send_time_str = row
-#         send_time = datetime.fromisoformat(send_time_str).replace(tzinfo=GMT_PLUS_5)
-#         delay = (send_time - datetime.now(GMT_PLUS_5)).total_seconds()
-
-#         if delay > 0:
-#             job_queue.run_once(send_broadcast, delay, data={
-#                 'broadcast_id': broadcast_id,
-#                 'broadcast_text': text if text else '',
-#                 'broadcast_photo': photo if photo else '',
-#                 'broadcast_targets': recipients
-#             })
-
-# async def start_broadcast(update: Update, context: CallbackContext) -> int:
-#     """Начинает процесс создания рассылки."""
-#     if update.effective_user.id != ADMIN_ID:
-#         await update.message.reply_text("❌ У вас нет прав.")
-#         return ConversationHandler.END
-
-#     await update.message.reply_text("📝 Введите текст сообщения/отправьте изображение:")
-#     return BROADCAST_MESSAGE
-
-# async def broadcast_message(update: Update, context: CallbackContext) -> int:
-#     """Обрабатывает текст/изображение для рассылки."""
-#     text = update.message.caption if update.message.caption else update.message.text
-#     photo = update.message.photo[-1].file_id if update.message.photo else None
-#     context.user_data['broadcast_text'] = text if text else ''
-#     context.user_data['broadcast_photo'] = photo if photo else ''
-
-#     await update.message.reply_text("👥 Введите ID пользователей /all:")
-#     return BROADCAST_TARGETS
-
-# async def broadcast_targets(update: Update, context: CallbackContext) -> int:
-#     """Обрабатывает выбор получателей."""
-#     if update.message.text.lower() == '/all':
-#         context.user_data['broadcast_targets'] = 'all'
-#     else:
-#         context.user_data['broadcast_targets'] = list(map(int, update.message.text.split()))
-#     await update.message.reply_text("⏰ Введите дату и время (ДД.ММ.ГГ ЧЧ:ММ):")
-#     return BROADCAST_SCHEDULE
-
-# async def broadcast_schedule(update: Update, context: CallbackContext) -> int:
-#     """Обрабатывает время отправки рассылки."""
-#     conn = context.bot_data['conn']
-#     user_input = update.message.text.strip()
-
-#     try:
-#         send_time = datetime.strptime(user_input, "%d.%m.%y %H:%M").replace(tzinfo=GMT_PLUS_5)
-#     except ValueError:
-#         await update.message.reply_text("❌ Неверный формат. Введите ДД.ММ.ГГ ЧЧ:ММ:")
-#         return BROADCAST_SCHEDULE
-
-#     context.user_data['broadcast_time'] = send_time
-
-#     if isinstance(context.user_data['broadcast_targets'], list):
-#         targets_str = ','.join(map(str, context.user_data['broadcast_targets']))
-#     else:
-#         targets_str = context.user_data['broadcast_targets']
-
-#     broadcast_id = insert_broadcast(
-#         conn,
-#         context.user_data['broadcast_text'],
-#         context.user_data['broadcast_photo'],
-#         targets_str,
-#         send_time
-#     )
-
-#     context.job_queue.run_once(send_broadcast, (send_time - datetime.now(GMT_PLUS_5)).total_seconds(), data={
-#         'broadcast_id': broadcast_id,
-#         'broadcast_text': context.user_data['broadcast_text'],
-#         'broadcast_photo': context.user_data['broadcast_photo'],
-#         'broadcast_targets': targets_str
-#     })
-
-#     await update.message.reply_text("✅ Рассылка запланирована.")
-#     return ConversationHandler.END
-
-# async def send_broadcast(context: CallbackContext) -> None:
-#     """Отправляет рассылку."""
-#     conn = context.bot_data['conn']
-#     data = context.job.data
-#     text = data.get('broadcast_text', '').strip()
-#     photo = data.get('broadcast_photo', '').strip()
-#     targets = data.get('broadcast_targets')
-#     broadcast_id = data.get('broadcast_id')
-
-#     if targets == 'all':
-#         cursor = conn.cursor()
-#         cursor.execute("SELECT user_id FROM users")
-#         users = [row[0] for row in cursor.fetchall()]
-#     else:  # targets это строка
-#         try:
-#             users = list(map(int, targets.split(',')))
-#         except ValueError:
-#             logger.error(f"Некорректный формат targets: {targets}")
-#             users = []
-
-#     for user_id in users:
-#         try:
-#             if photo and text:
-#                 await context.bot.send_photo(chat_id=user_id, photo=photo, caption=text, parse_mode="Markdown")
-#                 logger.info(f"Рассылка #{broadcast_id} (фото + текст) успешно отправлена пользователю {user_id}")
-#             elif photo:
-#                 await context.bot.send_photo(chat_id=user_id, photo=photo)
-#                 logger.info(f"Рассылка #{broadcast_id} (фото) успешно отправлена пользователю {user_id}")
-#             else:
-#                 await context.bot.send_message(chat_id=user_id, text=text, parse_mode="Markdown")
-#                 logger.info(f"Рассылка #{broadcast_id} (текст) успешно отправлена пользователю {user_id}: {text}")
-#         except Exception as e:
-#             logger.error(f"Ошибка при отправке рассылки #{broadcast_id} пользователю {user_id}: {e}")
-#     delete_broadcast(conn, broadcast_id)
-
-# async def start_broadcast(update: Update, context: CallbackContext) -> int:
-#     """Начинает процесс создания рассылки."""
-#     if update.effective_user.id != ADMIN_ID:
-#         await update.message.reply_text("❌ У вас нет прав.")
-#         return ConversationHandler.END
-
-#     await update.message.reply_text("📝 Введите текст сообщения/отправьте изображение 🖼️:")
-#     return BROADCAST_MESSAGE
-
-# async def broadcast_message(update: Update, context: CallbackContext) -> int:
-#     """Обрабатывает текст/изображение для рассылки."""
-#     text = update.message.caption if update.message.caption else update.message.text
-#     photo = update.message.photo[-1].file_id if update.message.photo else None
-#     context.user_data['broadcast_text'] = text if text else ''
-#     context.user_data['broadcast_photo'] = photo if photo else ''
-
-#     conn = context.bot_data['conn']
-#     #Предлагаем выбрать группу
-#     groups = get_all_groups(conn)
-
-#     if groups:
-#         buttons = [InlineKeyboardButton(group['group_name'], callback_data=f"broadcast_group_{group['group_id']}") for group in groups]
-#         reply_markup = InlineKeyboardMarkup(build_menu(buttons, n_cols=1))
-
-#         await update.message.reply_text(
-#             "👥 Введите ID пользователей через пробел, *или выберите группу*:",
-#             parse_mode="Markdown",
-#             reply_markup= reply_markup
-#         )
-#     else: #Если групп нет - предлагаем ввести ID
-#         await update.message.reply_text("👥 Введите ID пользователей через пробел:")
-
-#     return BROADCAST_TARGETS
-
-# async def broadcast_group_select(update:Update, context:CallbackContext):
-#     """Выбор группы для рассылки"""
-#     query = update.callback_query
-#     await query.answer()
-#     conn = context.bot_data['conn']
-
-#     group_id = int(query.data.split("_")[2])
-#     group_name = get_group_name_by_id(conn, group_id)
-
-#     if not group_name:
-#         await query.edit_message_text("❌ Ошибка: группа не найдена")
-#         return
-
-#     #Получаем всех пользователей группы
-#     users = get_group_users(conn, group_id)
-#     context.user_data['broadcast_targets'] = ','.join(map(str,users)) #Строка с ID
-
-#     await query.edit_message_text(f"Выбрана группа: {group_name}. ⏰ Введите дату и время (ДД.ММ.ГГ ЧЧ:ММ):")
-#     return BROADCAST_SCHEDULE
-
-# async def broadcast_targets(update: Update, context: CallbackContext) -> int:
-#     """Обрабатывает выбор получателей."""
-#     #Если выбрали группу - обработается в broadcast_group_select, и сюда не попадет
-#     #Если ввели вручную
-#     context.user_data['broadcast_targets'] = update.message.text #Сохраняем как строку
-#     await update.message.reply_text("⏰ Введите дату и время (ДД.ММ.ГГ ЧЧ:ММ):")
-#     return BROADCAST_SCHEDULE
-
-# async def broadcast_schedule(update: Update, context: CallbackContext) -> int:
-#     """Обрабатывает время отправки рассылки."""
-#     conn = context.bot_data['conn']
-#     user_input = update.message.text.strip()
-
-#     try:
-#         send_time = datetime.strptime(user_input, "%d.%m.%y %H:%M").replace(tzinfo=GMT_PLUS_5)
-#     except ValueError:
-#         await update.message.reply_text("❌ Неверный формат. Введите ДД.ММ.ГГ ЧЧ:ММ:")
-#         return BROADCAST_SCHEDULE
-
-#     context.user_data['broadcast_time'] = send_time
-
-#     if isinstance(context.user_data['broadcast_targets'], list):
-#         targets_str = ','.join(map(str, context.user_data['broadcast_targets']))
-#     else:
-#         targets_str = context.user_data['broadcast_targets']
-
-#     broadcast_id = insert_broadcast(
-#         conn,
-#         context.user_data['broadcast_text'],
-#         context.user_data['broadcast_photo'],
-#         targets_str,
-#         send_time
-#     )
-
-#     context.job_queue.run_once(send_broadcast, (send_time - datetime.now(GMT_PLUS_5)).total_seconds(), data={
-#         'broadcast_id': broadcast_id,
-#         'broadcast_text': context.user_data['broadcast_text'],
-#         'broadcast_photo': context.user_data['broadcast_photo'],
-#         'broadcast_targets': targets_str
-#     })
-
-#     await update.message.reply_text("✅ Рассылка запланирована.")
-#     return ConversationHandler.END
-
-# async def send_broadcast(context: CallbackContext) -> None:
-#     """Отправляет рассылку."""
-#     conn = context.bot_data['conn']
-#     data = context.job.data
-#     text = data.get('broadcast_text', '').strip()
-#     photo = data.get('broadcast_photo', '').strip()
-#     targets = data.get('broadcast_targets')
-#     broadcast_id = data.get('broadcast_id')
-
-#     if targets == 'all':
-#         cursor = conn.cursor()
-#         cursor.execute("SELECT user_id FROM users")
-#         users = [row[0] for row in cursor.fetchall()]
-#     else:  # targets это строка
-#         try:
-#             users = list(map(int, targets.split(',')))
-#         except ValueError:
-#             logger.error(f"❌ Некорректный формат targets: {targets}")
-#             users = []
-
-#     for user_id in users:
-#         try:
-#             if photo and text:
-#                 await context.bot.send_photo(chat_id=user_id, photo=photo, caption=text, parse_mode="Markdown")
-#                 logger.info(f"Рассылка #{broadcast_id} (фото + текст) успешно отправлена пользователю {user_id}")
-#             elif photo:
-#                 await context.bot.send_photo(chat_id=user_id, photo=photo)
-#                 logger.info(f"Рассылка #{broadcast_id} (фото) успешно отправлена пользователю {user_id}")
-#             else:
-#                 await context.bot.send_message(chat_id=user_id, text=text, parse_mode="Markdown")
-#                 logger.info(f"Рассылка #{broadcast_id} (текст) успешно отправлена пользователю {user_id}: {text}")
-#         except Exception as e:
-#             logger.error(f"Ошибка при отправке рассылки #{broadcast_id} пользователю {user_id}: {e}")
-#     delete_broadcast(conn, broadcast_id)
 
 async def create_group_start(update: Update, context: CallbackContext) -> int:
     """Начинает процесс создания группы."""
@@ -1260,7 +994,7 @@ async def create_group_name(update: Update, context: CallbackContext) -> int:
             f"✅ Группа *{group_name}* создана!\n"
             f"➡ Нажмите кнопку, чтобы присоединиться.",
             reply_markup=reply_markup,
-            parse_mode="Markdown"
+            
         )
     else:
         await update.message.reply_text("❌ Ошибка при создании группы.")
@@ -1331,7 +1065,7 @@ async def leave_group_button(update:Update, context:CallbackContext) -> None:
         return
 
     remove_user_from_group(conn, group_id, user_id)
-    await query.edit_message_text(f"✅ Вы вышли из группы: *{group_name}*.", parse_mode="Markdown")
+    await query.edit_message_text(f"✅ Вы вышли из группы: *{group_name}*.")
 
 async def delete_group_start(update: Update, context: CallbackContext) -> None:
     """Начинает процесс удаления группы (показывает список групп)."""
@@ -1349,7 +1083,7 @@ async def delete_group_start(update: Update, context: CallbackContext) -> None:
         return
 
     reply_markup = build_delete_group_menu(groups_list)
-    await update.message.reply_text("📋 Выберите группу для *удаления*:", reply_markup=reply_markup, parse_mode="Markdown")
+    await update.message.reply_text("📋 Выберите группу для *удаления*:", reply_markup=reply_markup)
 
 async def delete_group_button(update: Update, context: CallbackContext) -> None:
     """Обрабатывает нажатие кнопки удаления группы."""
@@ -1381,4 +1115,4 @@ async def delete_group_button(update: Update, context: CallbackContext) -> None:
         return
 
     delete_group_db(conn, group_id)
-    await query.edit_message_text(f"✅ Группа *{group_name}* успешно удалена.", parse_mode="Markdown")
+    await query.edit_message_text(f"✅ Группа *{group_name}* успешно удалена.")

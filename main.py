@@ -27,8 +27,8 @@ def main():
     job_queue = JobQueue()
     builder = ApplicationBuilder().token(TOKEN)
     defaults = Defaults(
-        parse_mode=None,
-        link_preview_options=LinkPreviewOptions(is_disabled=True),
+        parse_mode = "Markdown",
+        link_preview_options = LinkPreviewOptions(is_disabled=True),
         allow_sending_without_reply=True,
     )
     builder.defaults(defaults)
@@ -44,36 +44,56 @@ def main():
     create_queue_handler = ConversationHandler(
         entry_points=[CommandHandler("create_queue", create_queue_start)],
         states={
-            QUEUE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_queue_name)],
-            QUEUE_DATE: [MessageHandler(filters.TEXT, create_queue_date)],
-            QUEUE_TIME: [MessageHandler(filters.TEXT, create_queue_time)],
+            QUEUE_NAME: [
+                CommandHandler("cancel", cancel),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, create_queue_name)
+            ],
+            QUEUE_DATE: [
+                CommandHandler("cancel", cancel),
+                MessageHandler(filters.TEXT, create_queue_date)
+            ],
+            QUEUE_TIME: [
+                CommandHandler("cancel", cancel),
+                MessageHandler(filters.TEXT, create_queue_time)
+            ],
             CHOOSE_LOCATION: [
+                CommandHandler("cancel", cancel),
                 CallbackQueryHandler(create_queue_location, pattern="^location_(mathfac|custom)$"),
                 MessageHandler(filters.LOCATION, create_queue_location_custom),
             ],
-            CHOOSE_GROUP: [CallbackQueryHandler(create_queue_choose_group, pattern="^select_group_.*")],
-            SEND_NOTIFICATION: [CallbackQueryHandler(send_notification_choice, pattern="^send_notification_(yes|no)$")]
+            CHOOSE_GROUP: [
+                CommandHandler("cancel", cancel),
+                CallbackQueryHandler(create_queue_choose_group, pattern="^select_group_.*")
+            ],
+            SEND_NOTIFICATION: [
+                CommandHandler("cancel", cancel),
+                CallbackQueryHandler(send_notification_choice, pattern="^send_notification_(yes|no)$")
+            ]
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
     application.add_handler(create_queue_handler)
 
-    change_name_handler = ConversationHandler( #Смена имени
+    change_name_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(change_name_start, pattern="^change_name$")],
         states={
-            CHANGE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, change_name)]
+            CHANGE_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, change_name)
+            ]
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
     application.add_handler(change_name_handler)
 
     create_group_handler = ConversationHandler(
-            entry_points=[CommandHandler("create_group", create_group_start)],
-            states={
-                GROUP_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_group_name)],
-            },
-            fallbacks=[CommandHandler("cancel", cancel)],
-        )
+        entry_points=[CommandHandler("create_group", create_group_start)],
+        states={
+            GROUP_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, create_group_name)
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
     application.add_handler(create_group_handler)
 
     # ConversationHandler для рассылки
@@ -81,13 +101,18 @@ def main():
         entry_points=[CommandHandler("broadcast", start_broadcast)],
         states={
             BROADCAST_MESSAGE: [
+                CommandHandler("cancel", cancel),
                 MessageHandler(filters.TEXT | filters.PHOTO | filters.Document.ALL, broadcast_message)
             ],
             BROADCAST_RECIPIENTS: [
+                CommandHandler("cancel", cancel),
                 CallbackQueryHandler(broadcast_choose_group, pattern="^select_group_"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_recipients_input),
             ],
-            BROADCAST_SCHEDULE: [MessageHandler(filters.TEXT, broadcast_schedule)],
+            BROADCAST_SCHEDULE: [
+                CommandHandler("cancel", cancel),
+                MessageHandler(filters.TEXT, broadcast_schedule),
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
@@ -100,7 +125,7 @@ def main():
         states={
             WAITING_FOR_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_name)],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],  # Команда для отмены
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
 
 	 # Добавляем ConversationHandler в приложение

@@ -95,7 +95,7 @@ async def send_queue_created_message(update, context, queue_name, start_time, re
         f"📆 Дата: *{start_time.strftime('%d.%m.%y')}*\n"
         f"⏰ Время: *{start_time.strftime('%H:%M')}*\n\n"
         f"➡ *Нажмите кнопку, чтобы присоединиться!*",
-        parse_mode="Markdown",
+        ,
         reply_markup=reply_markup,
         link_preview_options=LinkPreviewOptions(is_disabled=True)
     )
