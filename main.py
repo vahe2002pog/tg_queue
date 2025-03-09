@@ -39,7 +39,7 @@ def main():
     application.bot_data['conn'] = conn
     loop.run_until_complete(set_commands(application))
 
-    application.job_queue.run_once(load_scheduled_broadcasts, 1)
+    loop.run_until_complete(load_scheduled_broadcasts(job_queue))
 
     create_queue_handler = ConversationHandler(
         entry_points=[CommandHandler("create_queue", create_queue_start)],
@@ -76,35 +76,29 @@ def main():
         )
     application.add_handler(create_group_handler)
 
-    # broadcast_handler = ConversationHandler(
-    #     entry_points=[CommandHandler("broadcast", start_broadcast)],
-    #     states={
-    #         BROADCAST_MESSAGE: [MessageHandler(filters.TEXT | filters.PHOTO, broadcast_message)],
-    #         BROADCAST_TARGETS: [
-    #             MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_targets),  # Ввод ID вручную
-    #             CallbackQueryHandler(broadcast_group_select, pattern="^broadcast_group_") # Выбор группы
-    #         ],
-    #         BROADCAST_SCHEDULE: [MessageHandler(filters.TEXT, broadcast_schedule)],
-    #     },
-    #     fallbacks=[CommandHandler("cancel", cancel)],
-    # )
-    # application.add_handler(broadcast_handler)
-
-    broadcast_handler = ConversationHandler( #Рассылка
+    # ConversationHandler для рассылки
+    broadcast_handler = ConversationHandler(
         entry_points=[CommandHandler("broadcast", start_broadcast)],
         states={
-            BROADCAST_MESSAGE: [MessageHandler(filters.TEXT | filters.PHOTO, broadcast_message)],
-            BROADCAST_TARGETS: [MessageHandler(filters.TEXT, broadcast_targets)],
+            BROADCAST_MESSAGE: [
+                MessageHandler(filters.TEXT | filters.PHOTO | filters.Document.ALL, broadcast_message)
+            ],
+            BROADCAST_RECIPIENTS: [
+                CallbackQueryHandler(broadcast_choose_group, pattern="^select_group_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_recipients_input),
+            ],
             BROADCAST_SCHEDULE: [MessageHandler(filters.TEXT, broadcast_schedule)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
+
+    # Добавляем обработчик в приложение
     application.add_handler(broadcast_handler)
 
     start_conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],  # Команда /start
+        entry_points=[CommandHandler("start", start)],
         states={
-            WAITING_FOR_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_name)],  # Обработчик ввода имени
+            WAITING_FOR_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_name)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],  # Команда для отмены
     )
@@ -117,7 +111,6 @@ def main():
 
     # Обработчики команд
     application.add_handler(CommandHandler("start", handle_deeplink, filters.Regex(JOIN_QUEUE_PAYLOAD)))
-    # application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("delete_queue", delete_queue_start))
     application.add_handler(CommandHandler("leave", leave_queue))
     application.add_handler(CommandHandler("skip", skip_turn))
@@ -131,7 +124,6 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
 
     # Обработчики сообщений
-    # application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, set_name))
     application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
 
     

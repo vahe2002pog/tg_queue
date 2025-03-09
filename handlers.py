@@ -744,136 +744,363 @@ async def set_commands(app):
     except Exception as e:
         logger.error(f"Не удалось установить команды: {e}")
 
-async def load_scheduled_broadcasts(job_queue: JobQueue):
-    """Загружает запланированные рассылки при запуске."""
-    conn = job_queue.application.bot_data['conn']
-    for row in get_broadcasts(conn):
-        broadcast_id, text, photo, recipients, send_time_str = row
-        send_time = datetime.fromisoformat(send_time_str).replace(tzinfo=GMT_PLUS_5)
-        delay = (send_time - datetime.now(GMT_PLUS_5)).total_seconds()
-
-        if delay > 0:
-            job_queue.run_once(send_broadcast, delay, data={
-                'broadcast_id': broadcast_id,
-                'broadcast_text': text if text else '',
-                'broadcast_photo': photo if photo else '',
-                'broadcast_targets': recipients
-            })
-
-async def load_scheduled_broadcasts(job_queue: JobQueue):
-    """Загружает запланированные рассылки при запуске."""
-    conn = job_queue.application.bot_data['conn']
-    for row in get_broadcasts(conn):
-        broadcast_id, text, photo, recipients, send_time_str = row
-        send_time = datetime.fromisoformat(send_time_str).replace(tzinfo=GMT_PLUS_5)
-        delay = (send_time - datetime.now(GMT_PLUS_5)).total_seconds()
-
-        if delay > 0:
-            job_queue.run_once(send_broadcast, delay, data={
-                'broadcast_id': broadcast_id,
-                'broadcast_text': text if text else '',
-                'broadcast_photo': photo if photo else '',
-                'broadcast_targets': recipients
-            })
-
 async def start_broadcast(update: Update, context: CallbackContext) -> int:
     """Начинает процесс создания рассылки."""
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("❌ У вас нет прав.")
-        return ConversationHandler.END
-
-    await update.message.reply_text("📝 Введите текст сообщения/отправьте изображение:")
+    await update.message.reply_text(
+        "📝 Введите сообщение для рассылки (текст, фото или файл).\n"
+    )
     return BROADCAST_MESSAGE
 
 async def broadcast_message(update: Update, context: CallbackContext) -> int:
-    """Обрабатывает текст/изображение для рассылки."""
-    text = update.message.caption if update.message.caption else update.message.text
-    photo = update.message.photo[-1].file_id if update.message.photo else None
-    context.user_data['broadcast_text'] = text if text else ''
-    context.user_data['broadcast_photo'] = photo if photo else ''
+    """Обрабатывает сообщения для рассылки."""
+    if not context.user_data.get('broadcast_messages'):
+        context.user_data['broadcast_messages'] = []
 
-    await update.message.reply_text("👥 Введите ID пользователей /all:")
-    return BROADCAST_TARGETS
+    if update.message.text == "/end":
+        if not context.user_data['broadcast_messages']:
+            await update.message.reply_text("❌ Вы не добавили ни одного сообщения.")
+            return ConversationHandler.END
+        else:
+            # Переходим к выбору получателей
+            user_id = update.effective_user.id
+            conn = context.bot_data['conn']
 
-async def broadcast_targets(update: Update, context: CallbackContext) -> int:
-    """Обрабатывает выбор получателей."""
-    if update.message.text.lower() == '/all':
-        context.user_data['broadcast_targets'] = 'all'
+            if user_id == ADMIN_ID:
+                # Админ видит все группы и кнопку "без группы"
+                all_groups = get_all_groups(conn)
+                reply_markup = build_select_group_menu(all_groups, with_no_group=True)
+                await update.message.reply_text("📋 Выберите группу для рассылки или нажмите 'Без группы':", reply_markup=reply_markup)
+            else:
+                # Обычный пользователь видит только группы, в которых он состоит
+                user_groups = get_user_groups(conn, user_id)
+                if not user_groups:
+                    await update.message.reply_text("❌ Вы не состоите ни в одной группе.")
+                    return ConversationHandler.END
+
+                # Показываем меню выбора группы (без опции "без группы")
+                reply_markup = build_select_group_menu(user_groups, with_no_group=False)
+                await update.message.reply_text("📋 Выберите группу для рассылки:", reply_markup=reply_markup)
+
+            return BROADCAST_RECIPIENTS
+
+    # Сохраняем текст, фото или файл в порядке получения
+    if update.message.text:
+        context.user_data['broadcast_messages'].append({"type": "text", "content": update.message.text})
+    elif update.message.photo:
+        context.user_data['broadcast_messages'].append({"type": "photo", "content": update.message.photo[-1].file_id})
+    elif update.message.document:
+        context.user_data['broadcast_messages'].append({"type": "document", "content": update.message.document.file_id})
+
+    await update.message.reply_text("✅ Сообщение добавлено. Продолжайте ввод или введите /end для завершения.")
+    return BROADCAST_MESSAGE
+
+async def broadcast_choose_group(update: Update, context: CallbackContext) -> int:
+    """Обрабатывает выбор группы для рассылки."""
+    query = update.callback_query
+    await query.answer()
+    group_id_str = query.data
+
+    if group_id_str == "select_group_none":
+        # Если выбрана "без группы", запрашиваем ID пользователей
+        context.user_data['group_id'] = None
+        await query.edit_message_text("👥 Введите ID пользователей через пробел:")
+        return BROADCAST_RECIPIENTS
+    elif group_id_str.startswith("select_group_"):
+        try:
+            group_id = int(group_id_str.split("_")[2])
+            conn = context.bot_data['conn']
+            group_name = get_group_by_id(conn, group_id)["group_name"]
+            context.user_data['group_id'] = group_id
+            await query.edit_message_text(f"✅ Выбрана группа *{group_name}*", parse_mode="Markdown")
+        except (ValueError, IndexError):
+            await query.edit_message_text("❌ Ошибка: Неверный формат выбора группы.")
+            return BROADCAST_RECIPIENTS
     else:
-        context.user_data['broadcast_targets'] = list(map(int, update.message.text.split()))
-    await update.message.reply_text("⏰ Введите дату и время (ДД.ММ.ГГ ЧЧ:ММ):")
+        await query.edit_message_text("❌ Ошибка: Неподдерживаемый выбор.")
+        return BROADCAST_RECIPIENTS
+
+    # Переходим к выбору времени рассылки
+    await query.message.reply_text("⏰ Введите дату и время рассылки в формате ДД.ММ.ГГ ЧЧ:ММ или /now для отправки сразу.")
     return BROADCAST_SCHEDULE
+
+async def broadcast_recipients_input(update: Update, context: CallbackContext) -> int:
+    """Обрабатывает ввод ID пользователей для рассылки."""
+    user_id = update.effective_user.id
+    conn = context.bot_data['conn']
+
+    if user_id == ADMIN_ID:
+        # Админ вводит ID пользователей через пробел
+        recipients = update.message.text.strip()
+        context.user_data['recipients'] = recipients
+        await update.message.reply_text("⏰ Введите дату и время рассылки в формате ДД.ММ.ГГ ЧЧ:ММ или /now для отправки сразу.")
+        return BROADCAST_SCHEDULE
+    else:
+        # Обычный пользователь не должен сюда попадать
+        await update.message.reply_text("❌ У вас нет прав для ввода ID пользователей.")
+        return ConversationHandler.END
+    
 
 async def broadcast_schedule(update: Update, context: CallbackContext) -> int:
     """Обрабатывает время отправки рассылки."""
     conn = context.bot_data['conn']
-    user_input = update.message.text.strip()
 
-    try:
-        send_time = datetime.strptime(user_input, "%d.%m.%y %H:%M").replace(tzinfo=GMT_PLUS_5)
-    except ValueError:
-        await update.message.reply_text("❌ Неверный формат. Введите ДД.ММ.ГГ ЧЧ:ММ:")
-        return BROADCAST_SCHEDULE
-
-    context.user_data['broadcast_time'] = send_time
-
-    if isinstance(context.user_data['broadcast_targets'], list):
-        targets_str = ','.join(map(str, context.user_data['broadcast_targets']))
+    if update.message.text.lower() == "/now":
+        send_time = datetime.now(GMT_PLUS_5)
     else:
-        targets_str = context.user_data['broadcast_targets']
+        try:
+            send_time = datetime.strptime(update.message.text.strip(), "%d.%m.%y %H:%M").replace(tzinfo=GMT_PLUS_5)
+        except ValueError:
+            await update.message.reply_text("❌ Неверный формат. Введите ДД.ММ.ГГ ЧЧ:ММ или /now.")
+            return BROADCAST_SCHEDULE
 
+    # Получаем список получателей
+    if context.user_data.get('group_id'):
+        group_id = context.user_data['group_id']
+        recipients = ",".join(map(str, get_group_users(conn, group_id)))
+    else:
+        recipients = context.user_data.get('recipients', '')
+
+    # Сохраняем рассылку в базу данных
     broadcast_id = insert_broadcast(
         conn,
-        context.user_data['broadcast_text'],
-        context.user_data['broadcast_photo'],
-        targets_str,
-        send_time
+        message_text="\n".join([msg['content'] for msg in context.user_data['broadcast_messages'] if msg['type'] == "text"]),
+        message_photo=next((msg['content'] for msg in context.user_data['broadcast_messages'] if msg['type'] == "photo"), None),
+        message_document=next((msg['content'] for msg in context.user_data['broadcast_messages'] if msg['type'] == "document"), None),
+        recipients=recipients,
+        send_time=send_time
     )
 
-    context.job_queue.run_once(send_broadcast, (send_time - datetime.now(GMT_PLUS_5)).total_seconds(), data={
-        'broadcast_id': broadcast_id,
-        'broadcast_text': context.user_data['broadcast_text'],
-        'broadcast_photo': context.user_data['broadcast_photo'],
-        'broadcast_targets': targets_str
-    })
+    if send_time == datetime.now(GMT_PLUS_5):
+        # Отправляем рассылку сразу
+        context.job_queue.run_once(
+            send_broadcast,
+            0,  # Задержка 0 секунд (отправка сразу)
+            data={
+                'broadcast_id': broadcast_id,
+                'messages': context.user_data['broadcast_messages'],  # Передаем список сообщений
+                'recipients': recipients
+            }
+        )
+        await update.message.reply_text("✅ Рассылка отправлена.")
+    else:
+        # Планируем рассылку
+        delay = (send_time - datetime.now(GMT_PLUS_5)).total_seconds()
+        context.job_queue.run_once(
+            send_broadcast,
+            delay,
+            data={
+                'broadcast_id': broadcast_id,
+                'messages': context.user_data['broadcast_messages'],  # Передаем список сообщений
+                'recipients': recipients
+            }
+        )
+        await update.message.reply_text(f"✅ Рассылка запланирована на {send_time.strftime('%d.%m.%Y %H:%M')}.")
 
-    await update.message.reply_text("✅ Рассылка запланирована.")
+    # Очищаем данные
+    context.user_data.clear()
     return ConversationHandler.END
 
 async def send_broadcast(context: CallbackContext) -> None:
     """Отправляет рассылку."""
     conn = context.bot_data['conn']
     data = context.job.data
-    text = data.get('broadcast_text', '').strip()
-    photo = data.get('broadcast_photo', '').strip()
-    targets = data.get('broadcast_targets')
-    broadcast_id = data.get('broadcast_id')
 
-    if targets == 'all':
+    broadcast_id = data['broadcast_id']
+    messages = data['messages']  # Список сообщений в порядке их получения
+    recipients = data.get('recipients', '')
+
+    # Получаем список получателей
+    if recipients == "all":
         cursor = conn.cursor()
         cursor.execute("SELECT user_id FROM users")
-        users = [row[0] for row in cursor.fetchall()]
-    else:  # targets это строка
-        try:
-            users = list(map(int, targets.split(',')))
-        except ValueError:
-            logger.error(f"Некорректный формат targets: {targets}")
-            users = []
+        user_ids = [row[0] for row in cursor.fetchall()]
+    else:
+        user_ids = list(map(int, recipients.split(",")))
 
-    for user_id in users:
-        try:
-            if photo and text:
-                await context.bot.send_photo(chat_id=user_id, photo=photo, caption=text, parse_mode="Markdown")
-                logger.info(f"Рассылка #{broadcast_id} (фото + текст) успешно отправлена пользователю {user_id}")
-            elif photo:
-                await context.bot.send_photo(chat_id=user_id, photo=photo)
-                logger.info(f"Рассылка #{broadcast_id} (фото) успешно отправлена пользователю {user_id}")
-            else:
-                await context.bot.send_message(chat_id=user_id, text=text, parse_mode="Markdown")
-                logger.info(f"Рассылка #{broadcast_id} (текст) успешно отправлена пользователю {user_id}: {text}")
-        except Exception as e:
-            logger.error(f"Ошибка при отправке рассылки #{broadcast_id} пользователю {user_id}: {e}")
+    # Отправляем сообщения в том же порядке
+    for user_id in user_ids:
+        for message in messages:
+            try:
+                if message['type'] == "text":
+                    await context.bot.send_message(chat_id=user_id, text=message['content'])
+                elif message['type'] == "photo":
+                    await context.bot.send_photo(chat_id=user_id, photo=message['content'])
+                elif message['type'] == "document":
+                    await context.bot.send_document(chat_id=user_id, document=message['content'])
+            except Exception as e:
+                logger.error(f"Ошибка при отправке рассылки пользователю {user_id}: {e}")
+
+    # Удаляем рассылку из базы данных
     delete_broadcast(conn, broadcast_id)
+
+async def load_scheduled_broadcasts(job_queue: JobQueue):
+    """Загружает запланированные рассылки при запуске бота."""
+    conn = job_queue.application.bot_data['conn']
+    broadcasts = get_broadcasts(conn)
+
+    for broadcast in broadcasts:
+        broadcast_id, message_text, message_photo, message_document, recipients, send_time_str = broadcast
+        send_time = datetime.fromisoformat(send_time_str).replace(tzinfo=GMT_PLUS_5)
+
+        # Если время рассылки уже прошло, удаляем её из базы данных
+        if send_time < datetime.now(GMT_PLUS_5):
+            delete_broadcast(conn, broadcast_id)
+            continue
+
+        # Создаем список сообщений в порядке их получения
+        messages = []
+        if message_text:
+            messages.append({"type": "text", "content": message_text})
+        if message_photo:
+            messages.append({"type": "photo", "content": message_photo})
+        if message_document:
+            messages.append({"type": "document", "content": message_document})
+
+        # Вычисляем задержку до времени отправки
+        delay = (send_time - datetime.now(GMT_PLUS_5)).total_seconds()
+
+        # Добавляем задачу в JobQueue
+        job_queue.run_once(
+            send_broadcast,
+            delay,
+            data={
+                'broadcast_id': broadcast_id,
+                'messages': messages,  # Передаем список сообщений
+                'recipients': recipients
+            }
+        )
+        logger.info(f"Рассылка #{broadcast_id} запланирована на {send_time}.")
+# async def load_scheduled_broadcasts(job_queue: JobQueue):
+#     """Загружает запланированные рассылки при запуске."""
+#     conn = job_queue.application.bot_data['conn']
+#     for row in get_broadcasts(conn):
+#         broadcast_id, text, photo, recipients, send_time_str = row
+#         send_time = datetime.fromisoformat(send_time_str).replace(tzinfo=GMT_PLUS_5)
+#         delay = (send_time - datetime.now(GMT_PLUS_5)).total_seconds()
+
+#         if delay > 0:
+#             job_queue.run_once(send_broadcast, delay, data={
+#                 'broadcast_id': broadcast_id,
+#                 'broadcast_text': text if text else '',
+#                 'broadcast_photo': photo if photo else '',
+#                 'broadcast_targets': recipients
+#             })
+
+# def load_scheduled_broadcasts(context):
+#     """Синхронная функция для загрузки запланированных рассылок."""
+#     job_queue = context.job_queue
+#     conn = job_queue.application.bot_data['conn']
+#     for row in get_broadcasts(conn):
+#         broadcast_id, text, photo, recipients, send_time_str = row
+#         send_time = datetime.fromisoformat(send_time_str).replace(tzinfo=GMT_PLUS_5)
+#         delay = (send_time - datetime.now(GMT_PLUS_5)).total_seconds()
+
+#         if delay > 0:
+#             job_queue.run_once(send_broadcast, delay, data={
+#                 'broadcast_id': broadcast_id,
+#                 'broadcast_text': text if text else '',
+#                 'broadcast_photo': photo if photo else '',
+#                 'broadcast_targets': recipients
+#             })
+
+# async def start_broadcast(update: Update, context: CallbackContext) -> int:
+#     """Начинает процесс создания рассылки."""
+#     if update.effective_user.id != ADMIN_ID:
+#         await update.message.reply_text("❌ У вас нет прав.")
+#         return ConversationHandler.END
+
+#     await update.message.reply_text("📝 Введите текст сообщения/отправьте изображение:")
+#     return BROADCAST_MESSAGE
+
+# async def broadcast_message(update: Update, context: CallbackContext) -> int:
+#     """Обрабатывает текст/изображение для рассылки."""
+#     text = update.message.caption if update.message.caption else update.message.text
+#     photo = update.message.photo[-1].file_id if update.message.photo else None
+#     context.user_data['broadcast_text'] = text if text else ''
+#     context.user_data['broadcast_photo'] = photo if photo else ''
+
+#     await update.message.reply_text("👥 Введите ID пользователей /all:")
+#     return BROADCAST_TARGETS
+
+# async def broadcast_targets(update: Update, context: CallbackContext) -> int:
+#     """Обрабатывает выбор получателей."""
+#     if update.message.text.lower() == '/all':
+#         context.user_data['broadcast_targets'] = 'all'
+#     else:
+#         context.user_data['broadcast_targets'] = list(map(int, update.message.text.split()))
+#     await update.message.reply_text("⏰ Введите дату и время (ДД.ММ.ГГ ЧЧ:ММ):")
+#     return BROADCAST_SCHEDULE
+
+# async def broadcast_schedule(update: Update, context: CallbackContext) -> int:
+#     """Обрабатывает время отправки рассылки."""
+#     conn = context.bot_data['conn']
+#     user_input = update.message.text.strip()
+
+#     try:
+#         send_time = datetime.strptime(user_input, "%d.%m.%y %H:%M").replace(tzinfo=GMT_PLUS_5)
+#     except ValueError:
+#         await update.message.reply_text("❌ Неверный формат. Введите ДД.ММ.ГГ ЧЧ:ММ:")
+#         return BROADCAST_SCHEDULE
+
+#     context.user_data['broadcast_time'] = send_time
+
+#     if isinstance(context.user_data['broadcast_targets'], list):
+#         targets_str = ','.join(map(str, context.user_data['broadcast_targets']))
+#     else:
+#         targets_str = context.user_data['broadcast_targets']
+
+#     broadcast_id = insert_broadcast(
+#         conn,
+#         context.user_data['broadcast_text'],
+#         context.user_data['broadcast_photo'],
+#         targets_str,
+#         send_time
+#     )
+
+#     context.job_queue.run_once(send_broadcast, (send_time - datetime.now(GMT_PLUS_5)).total_seconds(), data={
+#         'broadcast_id': broadcast_id,
+#         'broadcast_text': context.user_data['broadcast_text'],
+#         'broadcast_photo': context.user_data['broadcast_photo'],
+#         'broadcast_targets': targets_str
+#     })
+
+#     await update.message.reply_text("✅ Рассылка запланирована.")
+#     return ConversationHandler.END
+
+# async def send_broadcast(context: CallbackContext) -> None:
+#     """Отправляет рассылку."""
+#     conn = context.bot_data['conn']
+#     data = context.job.data
+#     text = data.get('broadcast_text', '').strip()
+#     photo = data.get('broadcast_photo', '').strip()
+#     targets = data.get('broadcast_targets')
+#     broadcast_id = data.get('broadcast_id')
+
+#     if targets == 'all':
+#         cursor = conn.cursor()
+#         cursor.execute("SELECT user_id FROM users")
+#         users = [row[0] for row in cursor.fetchall()]
+#     else:  # targets это строка
+#         try:
+#             users = list(map(int, targets.split(',')))
+#         except ValueError:
+#             logger.error(f"Некорректный формат targets: {targets}")
+#             users = []
+
+#     for user_id in users:
+#         try:
+#             if photo and text:
+#                 await context.bot.send_photo(chat_id=user_id, photo=photo, caption=text, parse_mode="Markdown")
+#                 logger.info(f"Рассылка #{broadcast_id} (фото + текст) успешно отправлена пользователю {user_id}")
+#             elif photo:
+#                 await context.bot.send_photo(chat_id=user_id, photo=photo)
+#                 logger.info(f"Рассылка #{broadcast_id} (фото) успешно отправлена пользователю {user_id}")
+#             else:
+#                 await context.bot.send_message(chat_id=user_id, text=text, parse_mode="Markdown")
+#                 logger.info(f"Рассылка #{broadcast_id} (текст) успешно отправлена пользователю {user_id}: {text}")
+#         except Exception as e:
+#             logger.error(f"Ошибка при отправке рассылки #{broadcast_id} пользователю {user_id}: {e}")
+#     delete_broadcast(conn, broadcast_id)
 
 # async def start_broadcast(update: Update, context: CallbackContext) -> int:
 #     """Начинает процесс создания рассылки."""

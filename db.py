@@ -42,6 +42,7 @@ def create_tables(conn):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 message_text TEXT,
                 message_photo TEXT,
+                message_document TEXT,
                 recipients TEXT,
                 send_time TEXT
             )
@@ -111,6 +112,27 @@ def get_group_name_by_id(conn, group_id: int) -> str | None:
         return result[0] if result else None
     except sqlite3.Error as e:
         logger.error(f"Ошибка при получении имени группы по ID: {e}")
+        return None
+
+def is_user_in_group(conn, group_id: int, user_id: int) -> bool:
+    """Проверяет, состоит ли пользователь в группе."""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM group_users WHERE group_id = ? AND user_id = ?", (group_id, user_id))
+        return cursor.fetchone() is not None
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при проверке нахождения пользователя в группе: {e}")
+        return False
+
+def get_group_id_by_name(conn, group_name: str) -> int | None:
+    """Получает ID группы по её названию."""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT group_id FROM groups WHERE group_name = ?", (group_name,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при получении ID группы: {e}")
         return None
 
 def delete_group_db(conn, group_id: int):
@@ -452,13 +474,13 @@ def remove_user_from_queue(conn, queue_id: int, user_id: int):
     except sqlite3.Error as e:
         logger.error(f"Ошибка при удалении пользователя из очереди: {e}")
         
-def insert_broadcast(conn, message_text: str, message_photo: str, recipients: str, send_time: datetime):
+def insert_broadcast(conn, message_text: str, message_photo: str, message_document: str, recipients: str, send_time: datetime):
     """Вставляет данные о рассылке в базу данных."""
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO broadcasts (message_text, message_photo, recipients, send_time) VALUES (?, ?, ?, ?)",
-            (message_text, message_photo, recipients, send_time.isoformat())
+            "INSERT INTO broadcasts (message_text, message_photo, message_document, recipients, send_time) VALUES (?, ?, ?, ?, ?)",
+            (message_text, message_photo, message_document, recipients, send_time.isoformat())
         )
         conn.commit()
         return cursor.lastrowid
@@ -470,7 +492,7 @@ def get_broadcasts(conn):
     """Получает список всех рассылок из базы данных."""
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, message_text, message_photo, recipients, send_time FROM broadcasts")
+        cursor.execute("SELECT id, message_text, message_photo, message_document, recipients, send_time FROM broadcasts")
         return cursor.fetchall()
     except sqlite3.Error as e:
         logger.error(f"Ошибка при получении рассылок: {e}")
