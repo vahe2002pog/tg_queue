@@ -2,6 +2,7 @@ import sqlite3
 import logging
 from datetime import datetime
 from config import DATABASE_NAME, ADMIN_ID
+import pytz
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,8 @@ def create_tables(conn):
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
                 name TEXT,
-                state TEXT
+                state TEXT,
+                time_zone TEXT
             )
         """)
         cursor.execute("""
@@ -272,15 +274,27 @@ def get_user_data(conn, user_id: int) -> tuple | None:
         logger.error(f"Ошибка при получении данных пользователя: {e}")
         return None
     
-def set_user_name(conn, user_id: int, user_name: str):
-    """Сохраняет имя пользователя в базу данных."""
+def set_user_name(conn, user_id: int, user_name: str, time_zone: str):
+    """Сохраняет имя пользователя и часовой пояс в базу данных."""
     try:
         cursor = conn.cursor()
-        cursor.execute("INSERT OR REPLACE INTO users (user_id, name, state) VALUES (?, ?, ?)", (user_id, user_name, "name_entered"))
+        cursor.execute("INSERT OR REPLACE INTO users (user_id, name, state, time_zone) VALUES (?, ?, ?, ?)", 
+                       (user_id, user_name, "name_entered", str(time_zone)))
         conn.commit()
-        logger.info(f"Имя пользователя {user_name} сохранено в базе данных")
+        logger.info(f"Имя пользователя {user_name} и часовой пояс {time_zone} сохранены в базе данных")
     except sqlite3.Error as e:
-        logger.error(f"Ошибка при сохранении имени пользователя в базе данных: {e}")
+        logger.error(f"Ошибка при сохранении имени пользователя и часового пояса в базе данных: {e}")
+
+def get_user_timezone(conn, user_id: int) -> str | None:
+    """Получает часовой пояс пользователя из базы данных."""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT time_zone FROM users WHERE user_id = ?", (user_id,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при получении часового пояса пользователя: {e}")
+        return None
 
 def update_user_name(conn, user_id: int, new_name: str):
     """Обновляет имя пользователя в базе данных."""
@@ -333,7 +347,7 @@ async def get_queue_by_id(conn, queue_id: int) -> dict | None:
         result = cursor.fetchone()
         if result:
             start_time_str = result[1]
-            start_time = datetime.fromisoformat(start_time_str) if start_time_str else None
+            start_time = datetime.fromisoformat(start_time_str).replace(tzinfo=pytz.UTC) if start_time_str else None
             return {"queue_name": result[0], "start_time": start_time, "latitude": result[2], "longitude": result[3], "creator_id": result[4]}
         return None
     except sqlite3.Error as e:
@@ -528,7 +542,7 @@ def insert_queue(conn, queue_name: str, start_time: datetime, latitude: float, l
     try:
         cursor = conn.cursor()
         cursor.execute("INSERT OR IGNORE INTO queues (queue_name, start_time, latitude, longitude, creator_id) VALUES (?, ?, ?, ?, ?)",
-                       (queue_name, start_time.isoformat(), latitude, longitude, creator_id))
+              (queue_name, start_time.astimezone(pytz.UTC).isoformat(), latitude, longitude, creator_id))
         conn.commit()
         logger.info(f"Очередь {queue_name} успешно сохранена в базе данных.")
     except sqlite3.Error as e:

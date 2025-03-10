@@ -3,7 +3,7 @@ import logging
 import json
 from telegram import Update,  Message, BotCommand, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from telegram.ext import  ContextTypes,  CallbackContext,  ConversationHandler, JobQueue
-from datetime import datetime
+from datetime import datetime, timedelta
 from geopy.distance import geodesic
 
 from config import *
@@ -17,6 +17,7 @@ async def start(update: Update, context: CallbackContext) -> int:
     """Обработка команды /start."""
     user_id = update.effective_user.id
     conn = context.bot_data['conn']
+    time_zone = GMT_PLUS_5
 
     result = get_user_data(conn, user_id)
     if result:
@@ -25,15 +26,18 @@ async def start(update: Update, context: CallbackContext) -> int:
         return ConversationHandler.END 
     else:
         await update.message.reply_text("Привет! Пожалуйста, введите ваше *имя*:")
-        context.user_data['state'] = WAITING_FOR_NAME 
-        return WAITING_FOR_NAME 
+        context.user_data['state'] = WAITING_FOR_NAME
+        context.user_data['time_zone'] = time_zone
+        return WAITING_FOR_NAME
 
 async def set_name(update: Update, context: CallbackContext) -> int:
     """Обработчик ввода имени пользователя."""
     user_id = update.effective_user.id
     user_name = update.message.text
     conn = context.bot_data['conn']
-    set_user_name(conn, user_id, user_name)
+    time_zone = GMT_PLUS_5
+
+    set_user_name(conn, user_id, user_name, time_zone)
     await update.message.reply_text(f"✅ Ваше имя *{user_name}* сохранено.")
     reply_markup = build_main_menu()
     await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
@@ -82,15 +86,15 @@ async def create_queue_name(update: Update, context: CallbackContext) -> int:
 async def create_queue_date(update: Update, context: CallbackContext) -> int:
     """Обработчик получения даты очереди."""
     user_input = update.message.text.strip()
+    user_timezone_str = get_user_timezone(conn = context.bot_data['conn'], user_id = update.effective_user.id)  # Получаем часовой пояс пользователя
 
     if user_input == "/today":
-        today = datetime.now(GMT_PLUS_5).strftime("%d.%m.%y")
+        today = datetime.now(pytz.timezone(user_timezone_str)).strftime("%d.%m.%y")
         context.user_data['queue_date'] = today
         await update.message.reply_text(
             f"✅ *Дата выбрана:* `{today}` 📆\n\n"
             "🕒 Теперь введите *время начала* в формате _ЧЧ:ММ_.\n"
             "⏰ Чтобы выбрать *текущее время*, введите /now.\n",
-            
         )
         return QUEUE_TIME
 
@@ -98,7 +102,6 @@ async def create_queue_date(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text(
             "⚠️ *Ошибка:* Неверный формат даты.\n\n"
             "📅 Пожалуйста, используйте _ДД.ММ.ГГ_ или введите /today для выбора сегодняшней даты.",
-            
         )
         return QUEUE_DATE
 
@@ -107,28 +110,26 @@ async def create_queue_date(update: Update, context: CallbackContext) -> int:
         "📅 *Дата сохранена!* ✅\n\n"
         "🕒 Теперь введите *время начала* в формате _ЧЧ:ММ_.\n"
         "⏰ Чтобы выбрать *текущее время*, введите /now.\n",
-        
     )
     return QUEUE_TIME
 
 async def create_queue_time(update: Update, context: CallbackContext) -> int:
     """Обработчик получения времени очереди."""
     user_input = update.message.text.strip()
+    user_timezone_str = get_user_timezone(conn = context.bot_data['conn'], user_id = update.effective_user.id)
 
     if user_input == "/now":
-        now_time = datetime.now(GMT_PLUS_5).strftime("%H:%M")
+        now_time = datetime.now(pytz.timezone(user_timezone_str)).strftime("%H:%M")
         context.user_data['queue_time'] = now_time
         await update.message.reply_text(
             f"✅ *Выбрано текущее время:* `{now_time}` ⏰\n\n"
             "📍 Теперь выберите *местоположение очереди*:",
-            
         )
     else:
         if not validate_time(update.message.text):
             await update.message.reply_text(
                 "⚠️ *Ошибка:* Неверный формат времени.\n\n"
                 "⏰ Пожалуйста, используйте _ЧЧ:ММ_ или введите /now для выбора текущего времени.",
-                
             )
             return QUEUE_TIME
 
@@ -138,7 +139,6 @@ async def create_queue_time(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(
         "🌍 *Выберите местоположение очереди:*",
         reply_markup=reply_markup,
-        
     )
     return CHOOSE_LOCATION
 
@@ -212,27 +212,28 @@ async def create_queue_final(update: Update, context: CallbackContext) -> int:
     longitude = context.user_data['longitude']
     group_id = context.user_data.get('group_id')
     conn = context.bot_data['conn']
+    user_timezone_str = get_user_timezone(conn = context.bot_data['conn'], user_id = update.effective_user.id)
 
     try:
+        # Конвертируем время из часового пояса пользователя в UTC
+        user_timezone = pytz.timezone(user_timezone_str)
         start_time = datetime.strptime(f"{date_str} {time_str}", "%d.%m.%y %H:%M")
+        start_time_localized = user_timezone.localize(start_time)
+        start_time_utc = start_time_localized.astimezone(pytz.UTC)
     except ValueError:
         await update.effective_message.reply_text(
             "❌ *Ошибка:* Неверный формат даты или времени. Пожалуйста, проверьте ввод.",
-            
         )
         return ConversationHandler.END
-
-    start_time_gmt5 = start_time.replace(tzinfo=GMT_PLUS_5)
 
     # Вставляем очередь в БД (с group_id или NULL)
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO queues (queue_name, start_time, latitude, longitude, creator_id, group_id)
         VALUES (?, ?, ?, ?, ?, ?)
-    """, (name, start_time_gmt5.isoformat(), latitude, longitude, update.effective_user.id, group_id))
+    """, (name, start_time_utc.isoformat(), latitude, longitude, update.effective_user.id, group_id))
     conn.commit()
     queue_id = cursor.lastrowid
-
 
     location_message = await update.effective_message.reply_location(
         latitude=latitude,
@@ -329,7 +330,6 @@ async def finish_queue_creation(update:Update, context:CallbackContext):
     date_str = context.user_data['queue_date']
     time_str = context.user_data['queue_time']
     start_time = datetime.strptime(f"{date_str} {time_str}", "%d.%m.%y %H:%M")
-    start_time_gmt5 = start_time.replace(tzinfo=GMT_PLUS_5)
 
     #Создаем кнопку
     reply_markup = await create_join_queue_button(context, queue_id)
@@ -338,7 +338,11 @@ async def finish_queue_creation(update:Update, context:CallbackContext):
     context.user_data['queue_message_id'] = queue_message.message_id #Сохраняем ID сообщения
 
     #Удаляем через 5 часов
-    time_until_deletion = (start_time_gmt5 + timedelta(hours=5)) - datetime.now(GMT_PLUS_5)
+    user_timezone_str = get_user_timezone(conn, user_id = update.effective_user.id)
+    user_timezone = pytz.timezone(user_timezone_str)
+    start_time_localized = user_timezone.localize(start_time)
+    start_time_utc = start_time_localized.astimezone(pytz.UTC)
+    time_until_deletion = (start_time_utc + timedelta(hours=5)) - datetime.now(pytz.UTC)
     seconds_until_deletion = max(time_until_deletion.total_seconds(), 0)
     context.job_queue.run_once(delete_queue_job, seconds_until_deletion, data=queue_id)
 
@@ -567,7 +571,8 @@ async def queue_info_button(update: Update, context: CallbackContext) -> None:
         await query.message.reply_text("❌ Ошибка: Неверный формат данных.")
         return
 
-    message = await generate_queue_info_message(conn, queue_id)
+    user_timezone_str = get_user_timezone(conn, user_id = update.effective_user.id)
+    message = await generate_queue_info_message(conn, queue_id, user_timezone_str)
     await query.edit_message_text(message)
 
 async def show_queues(update: Update, context: CallbackContext) -> None:
@@ -647,7 +652,8 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
     context.user_data['user_id'] = user_id
 
     # Предварительный показ списка участников (для обоих случаев)
-    info_message = await generate_queue_info_message(conn, queue_id)
+    user_timezone_str = get_user_timezone(conn, user_id)
+    info_message = await generate_queue_info_message(conn, queue_id, user_timezone_str)
     await message.reply_text(info_message)
 
 
@@ -660,8 +666,12 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
         await message.reply_text("❌ Ошибка: очередь не найдена.")
         return
 
-    if queue["start_time"] > datetime.now(GMT_PLUS_5):
-        await message.reply_text(f"⚠️ Запись начнется *{queue['start_time'].strftime('%d.%m.%Y %H:%M')}* ⏰")
+    user_timezone_str = get_user_timezone(conn, user_id)
+    user_timezone = pytz.timezone(user_timezone_str)
+    queue_start_time = queue["start_time"].astimezone(user_timezone)
+
+    if queue_start_time > datetime.now(user_timezone):
+        await message.reply_text(f"⚠️ Запись начнется *{queue_start_time.strftime('%d.%m.%Y %H:%M')}* ⏰")
         return
 
     context.user_data["expecting_location_for"] = queue_id
@@ -849,10 +859,14 @@ async def broadcast_schedule(update: Update, context: CallbackContext) -> int:
     user_id = update.effective_user.id
 
     if update.message.text.lower() == "/now":
-        send_time = datetime.now(GMT_PLUS_5)
+        send_time = datetime.now(pytz.UTC)
     else:
         try:
-            send_time = datetime.strptime(update.message.text.strip(), "%d.%m.%y %H:%M").replace(tzinfo=GMT_PLUS_5)
+            user_timezone_str = get_user_timezone(conn, user_id)
+            user_timezone = pytz.timezone(user_timezone_str)
+            send_time = datetime.strptime(update.message.text.strip(), "%d.%m.%y %H:%M")
+            send_time_localized = user_timezone.localize(send_time)
+            send_time_utc = send_time_localized.astimezone(pytz.UTC)
         except ValueError:
             await update.message.reply_text("❌ Неверный формат. Введите ДД.ММ.ГГ ЧЧ:ММ или /now.")
             return BROADCAST_SCHEDULE
@@ -875,7 +889,7 @@ async def broadcast_schedule(update: Update, context: CallbackContext) -> int:
         creator_id=user_id
     )
 
-    if send_time == datetime.now(GMT_PLUS_5):
+    if send_time == datetime.now(pytz.UTC):
         # Отправляем рассылку сразу
         context.job_queue.run_once(
             send_broadcast,
@@ -889,7 +903,7 @@ async def broadcast_schedule(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text("✅ Рассылка отправлена.")
     else:
         # Планируем рассылку
-        delay = (send_time - datetime.now(GMT_PLUS_5)).total_seconds()
+        delay = (send_time_utc - datetime.now(pytz.UTC)).total_seconds()
         context.job_queue.run_once(
             send_broadcast,
             delay,
@@ -956,10 +970,10 @@ async def load_scheduled_broadcasts(job_queue: JobQueue):
             logger.info(f"Рассылка #{broadcast_id} была удалена и не будет запланирована.")
             continue
 
-        send_time = datetime.fromisoformat(send_time_str).replace(tzinfo=GMT_PLUS_5)
+        send_time = datetime.fromisoformat(send_time_str).replace(tzinfo=pytz.UTC)
 
         # Если время рассылки уже прошло, удаляем её из базы данных
-        if send_time < datetime.now(GMT_PLUS_5):
+        if send_time < datetime.now(pytz.UTC):
             mark_broadcast_as_deleted(conn, broadcast_id)
             continue
 
@@ -973,7 +987,7 @@ async def load_scheduled_broadcasts(job_queue: JobQueue):
             messages.append({"type": "document", "content": message_document})
 
         # Вычисляем задержку до времени отправки
-        delay = (send_time - datetime.now(GMT_PLUS_5)).total_seconds()
+        delay = (send_time - datetime.now(pytz.UTC)).total_seconds()
 
         # Добавляем задачу в JobQueue
         job_queue.run_once(

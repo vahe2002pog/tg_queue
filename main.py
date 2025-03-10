@@ -3,7 +3,6 @@ from telegram.ext import ApplicationBuilder, Defaults
 from telegram import  LinkPreviewOptions, Update
 import asyncio
 from handlers import *
-
 from telegram.ext import (
      CommandHandler,  CallbackQueryHandler, MessageHandler,
     filters, ConversationHandler, JobQueue
@@ -134,6 +133,8 @@ def main():
     # Добавляем обработчик в приложение
     application.add_handler(delete_broadcast_handler)
 
+    application.add_handler(CommandHandler("start", handle_deeplink, filters.Regex(JOIN_QUEUE_PAYLOAD)))
+
     start_conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -149,7 +150,6 @@ def main():
     application.add_handler(CallbackQueryHandler(main_menu_buttons, pattern="^(show_queues|change_name)$"))
 
     # Обработчики команд
-    application.add_handler(CommandHandler("start", handle_deeplink, filters.Regex(JOIN_QUEUE_PAYLOAD)))
     application.add_handler(CommandHandler("delete_queue", delete_queue_start))
     application.add_handler(CommandHandler("leave", leave_queue))
     application.add_handler(CommandHandler("skip", skip_turn))
