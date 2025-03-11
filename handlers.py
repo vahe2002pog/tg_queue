@@ -25,9 +25,9 @@ async def start(update: Update, context: CallbackContext) -> int:
 
         # Проверяем, откуда пришел запрос
         if update.message:
-            await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
+            await update.message.reply_text("Главное меню", reply_markup=reply_markup)
         elif update.callback_query:
-            await update.callback_query.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
+            await update.callback_query.message.reply_text("Главное меню", reply_markup=reply_markup)
         else:
             logger.error("Не удалось определить источник запроса в функции start.")
             return ConversationHandler.END
@@ -57,7 +57,7 @@ async def set_name(update: Update, context: CallbackContext) -> int:
     set_user_name(conn, user_id, user_name, time_zone)
     await update.message.reply_text(f"✅ Ваше имя *{user_name}* сохранено.")
     reply_markup = build_main_menu()
-    await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
+    await update.message.reply_text("Главное меню", reply_markup=reply_markup)
     return ConversationHandler.END
 
 async def change_name_start(update: Update, context: CallbackContext) -> None:
@@ -77,7 +77,7 @@ async def change_name(update: Update, context: CallbackContext) -> int:
     update_user_state(conn, user_id, "name_entered")
 
     reply_markup = build_main_menu()
-    await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
+    await update.message.reply_text("Главное меню", reply_markup=reply_markup)
     return ConversationHandler.END
 
 async def create_queue(update: Update, context: CallbackContext) -> int:
@@ -838,47 +838,48 @@ async def show_broadcasts(update: Update, context: CallbackContext) -> None:
         await update.effective_message.edit_text("❌ Нет доступных рассылок.", reply_markup=reply_markup)
 
 async def broadcast_info_button(update: Update, context: CallbackContext) -> None:
-    """Обрабатывает нажатие кнопки просмотра информации о рассылке и отправляет сообщения только нажавшему пользователю."""
+    """Обрабатывает нажатие кнопки просмотра информации о рассылке."""
     query = update.callback_query
     await query.answer()
     conn = context.bot_data['conn']
-    broadcast_id = int(query.data.split("_")[2])  # Извлекаем ID рассылки из callback_data
+    broadcast_id = int(query.data.split("_")[2])
 
-    # Получаем данные о рассылке
+    # Получаем информацию о рассылке
     broadcast = get_broadcast_by_id(conn, broadcast_id)
     if not broadcast:
         await query.edit_message_text("❌ Ошибка: Рассылка не найдена.")
         return
 
-    # Формируем кнопки (оставляем их без изменений)
+    # Получаем запланированное время
+    cursor = conn.cursor()
+    cursor.execute("SELECT send_time FROM broadcasts WHERE id = ?", (broadcast_id,))
+    send_time_result = cursor.fetchone()
+    send_time = datetime.fromisoformat(send_time_result[0]).strftime("%d.%m.%Y %H:%M") if send_time_result else "Не указано"
+
+    # Формируем текст сообщения
+    message_text = broadcast.get("message_text", "")
+    message_photo = broadcast.get("message_photo", "")
+    message_document = broadcast.get("message_document", "")
+
+    # Формируем информацию о рассылке
+    info_text = f"📋 *Информация о рассылке:*\n\n"
+    if message_text:
+        info_text += f"📝 *Сообщение:*\n{message_text}\n\n"
+    if message_photo:
+        info_text += "🖼 *Фото:* Прикреплено\n\n"
+    if message_document:
+        info_text += "📄 *Документ:* Прикреплен\n\n"
+    info_text += f"⏰ *Запланированное время:* {send_time}"
+
+    # Формируем кнопки
     buttons = [
         InlineKeyboardButton("❌ Отменить", callback_data=f"cancel_broadcast_{broadcast_id}"),
         InlineKeyboardButton("🔙 Назад", callback_data="show_broadcasts")
     ]
     reply_markup = InlineKeyboardMarkup(build_menu(buttons, n_cols=1))
 
-    # Отправляем сообщение с информацией о рассылке (оставляем кнопки)
-    await query.edit_message_text(f"📋 Информация о рассылке:", reply_markup=reply_markup, parse_mode=None)
-
-    # Получаем данные рассылки
-    message_text, message_photo, message_document = broadcast
-
-    # Отправляем сообщения только тому пользователю, который нажал на кнопку
-    user_id = query.from_user.id
-    try:
-        if message_text:
-            # Убедитесь, что parse_mode указан корректно (например, None, MarkdownV2 или HTML)
-            await context.bot.send_message(chat_id=user_id, text=message_text, parse_mode=None)
-        if message_photo:
-            await context.bot.send_photo(chat_id=user_id, photo=message_photo)
-        if message_document:
-            await context.bot.send_document(chat_id=user_id, document=message_document)
-    except Exception as e:
-        logger.error(f"Ошибка при отправке рассылки пользователю {user_id}: {e}")
-        await query.edit_message_text(f"❌ Не удалось отправить рассылку. Ошибка: {e}", reply_markup=reply_markup)
-
-    # Помечаем рассылку как удаленную (если нужно)
-    mark_broadcast_as_deleted(conn, broadcast_id)
+    # Отправляем сообщение с информацией о рассылке
+    await query.edit_message_text(info_text, reply_markup=reply_markup, parse_mode="Markdown")
 
 async def create_broadcast(update: Update, context: CallbackContext) -> int:
     """Начинает процесс создания рассылки."""
@@ -1402,4 +1403,4 @@ async def back_to_main_menu(update: Update, context: CallbackContext) -> None:
 
     # Редактируем текущее сообщение, чтобы вернуться в главное меню
     reply_markup = build_main_menu()
-    await query.edit_message_text("Что вы хотите сделать?", reply_markup=reply_markup)
+    await query.edit_message_text("Главное меню", reply_markup=reply_markup)
