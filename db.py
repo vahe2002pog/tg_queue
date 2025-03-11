@@ -547,3 +547,16 @@ def insert_queue(conn, queue_name: str, start_time: datetime, latitude: float, l
         logger.info(f"Очередь {queue_name} успешно сохранена в базе данных.")
     except sqlite3.Error as e:
         logger.error(f"Ошибка при создании очереди в базе данных: {e}")
+
+def get_broadcast_by_id(conn, broadcast_id: int) -> dict | None:
+    """Получает информацию о рассылке по её ID."""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT message_text, message_photo, message_document FROM broadcasts WHERE id = ?", (broadcast_id,))
+        result = cursor.fetchone()
+        if result:
+            return {"message_text": result[0], "message_photo": result[1], "message_document": result[2]}
+        return None
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при получении рассылки из базы данных: {e}")
+        return None

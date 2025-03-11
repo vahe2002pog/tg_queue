@@ -18,22 +18,14 @@ async def send_notification(user_id: int, message: str, context: CallbackContext
     except Exception as e:
         logger.error(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
 
-def build_menu(buttons, n_cols, header_buttons=None, footer_buttons=None):
-    """Собирает inline клавиатуру."""
+def build_menu(buttons, n_cols=1, header_buttons=None, footer_buttons=None):
+    """Создает меню из кнопок."""
     menu = [buttons[i:i + n_cols] for i in range(0, len(buttons), n_cols)]
     if header_buttons:
         menu.insert(0, header_buttons)
     if footer_buttons:
         menu.append(footer_buttons)
-    return InlineKeyboardMarkup(menu)
-
-def build_main_menu():
-    """Создает клавиатуру главного меню."""
-    buttons = [
-        InlineKeyboardButton("📋 Показать очереди", callback_data="show_queues"),
-        InlineKeyboardButton("🔄 Сменить имя", callback_data="change_name")
-    ]
-    return build_menu(buttons, n_cols=1)
+    return menu
 
 def build_location_menu():
     """Создает клавиатуру выбора местоположения."""
@@ -200,3 +192,15 @@ def convert_time_to_user_timezone(server_time: datetime, user_timezone_str: str)
     """Конвертирует время из UTC в часовой пояс пользователя."""
     user_timezone = pytz.timezone(user_timezone_str)
     return server_time.replace(tzinfo=pytz.UTC).astimezone(user_timezone)
+
+def build_main_menu():
+    """Создает клавиатуру главного меню."""
+    buttons = [
+        InlineKeyboardButton("📋 Очереди", callback_data="show_queues"),
+        InlineKeyboardButton("👥 Группы", callback_data="show_groups"),
+        InlineKeyboardButton("📨 Рассылка", callback_data="show_broadcasts"),
+        InlineKeyboardButton("🔄 Сменить имя", callback_data="change_name"),
+        InlineKeyboardButton("❓ Помощь", callback_data="help")
+    ]
+    menu = build_menu(buttons, n_cols=2)
+    return InlineKeyboardMarkup(menu)

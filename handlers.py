@@ -17,17 +17,34 @@ async def start(update: Update, context: CallbackContext) -> int:
     """Обработка команды /start."""
     user_id = update.effective_user.id
     conn = context.bot_data['conn']
-    time_zone = GMT_PLUS_5
 
     result = get_user_data(conn, user_id)
     if result:
+        # Получаем клавиатуру главного меню
         reply_markup = build_main_menu()
-        await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
-        return ConversationHandler.END 
+
+        # Проверяем, откуда пришел запрос
+        if update.message:
+            await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
+        elif update.callback_query:
+            await update.callback_query.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
+        else:
+            logger.error("Не удалось определить источник запроса в функции start.")
+            return ConversationHandler.END
+
+        return ConversationHandler.END
     else:
-        await update.message.reply_text("Привет! Пожалуйста, введите ваше *имя*:")
+        # Если пользователь не зарегистрирован, запрашиваем имя
+        if update.message:
+            await update.message.reply_text("Привет! Пожалуйста, введите ваше *имя*:")
+        elif update.callback_query:
+            await update.callback_query.message.reply_text("Привет! Пожалуйста, введите ваше *имя*:")
+        else:
+            logger.error("Не удалось определить источник запроса в функции start.")
+            return ConversationHandler.END
+
         context.user_data['state'] = WAITING_FOR_NAME
-        context.user_data['time_zone'] = time_zone
+        context.user_data['time_zone'] = GMT_PLUS_5
         return WAITING_FOR_NAME
 
 async def set_name(update: Update, context: CallbackContext) -> int:
@@ -63,7 +80,7 @@ async def change_name(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("Что вы хотите сделать?", reply_markup=reply_markup)
     return ConversationHandler.END
 
-async def create_queue_start(update: Update, context: CallbackContext) -> int:
+async def create_queue(update: Update, context: CallbackContext) -> int:
     """Начинает процесс создания очереди (выбор группы)."""
     await update.message.reply_text(
         "📌 *Создание очереди*\n\n"
@@ -560,42 +577,63 @@ async def queue_info_button(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
     conn = context.bot_data['conn']
-    callback_data = query.data
-    data_parts = callback_data.split("_")
+    queue_id = int(query.data.split("_")[2])
 
-    if len(data_parts) >= 2 and data_parts[1].isdigit():
-        queue_id = int(data_parts[1])
-    elif len(data_parts) >= 3 and data_parts[2].isdigit():
-        queue_id = int(data_parts[2])
-    else:
-        await query.message.reply_text("❌ Ошибка: Неверный формат данных.")
+    user_id = update.effective_user.id
+    queue = await get_queue_by_id(conn, queue_id)
+    if not queue:
+        await query.edit_message_text("❌ Ошибка: Очередь не найдена.")
         return
 
-    user_timezone_str = get_user_timezone(conn, user_id = update.effective_user.id)
-    message = await generate_queue_info_message(conn, queue_id, user_timezone_str)
-    await query.edit_message_text(message)
+    # Получаем список участников очереди
+    users_list = get_queue_users_names(conn, queue_id)
+    users_text = "\n".join([f"{i+1}. {user}" for i, user in enumerate(users_list)]) if users_list else "🔍 В очереди пока нет участников."
+
+    # Формируем кнопки
+    buttons = []
+    if is_user_in_queue(conn, queue_id, user_id):
+        buttons.append(InlineKeyboardButton("⏭ Пропустить ход", callback_data=f"skip_{queue_id}"))
+        buttons.append(InlineKeyboardButton("🚪 Выйти из очереди", callback_data=f"leave_{queue_id}"))
+    else:
+        buttons.append(InlineKeyboardButton("➕ Присоединиться", callback_data=f"join_queue_{queue_id}"))
+
+    if queue['creator_id'] == user_id or user_id == ADMIN_ID:
+        buttons.append(InlineKeyboardButton("❌ Удалить очередь", callback_data=f"delete_queue_{queue_id}"))
+
+    buttons.append(InlineKeyboardButton("🔙 Назад", callback_data="show_queues"))
+
+    reply_markup = InlineKeyboardMarkup(build_menu(buttons, n_cols=1))
+    await query.edit_message_text(
+        f"📋 Информация об очереди {queue['queue_name']}:\n\n"
+        f"👥 Участники:\n{users_text}",
+        reply_markup=reply_markup
+    )
 
 async def show_queues(update: Update, context: CallbackContext) -> None:
-    """Отображает список доступных очередей (с учетом групп)."""
+    """Отображает список доступных очередей."""
     conn = context.bot_data['conn']
     user_id = update.effective_user.id
 
-    # Получаем группы пользователя
-    user_groups = get_user_groups(conn, user_id)
-    group_ids = [group['group_id'] for group in user_groups]
-
-    # Получаем очереди для каждой группы пользователя + очереди без группы
-    queues_list = []
-    for group_id in group_ids:
-        queues_list.extend(get_queues_by_group(conn, group_id))
-    queues_list.extend(get_queues_by_group(conn, None))  # Очереди без группы
-
+    # Получаем очереди для пользователя
+    queues_list = get_user_queues(conn, user_id)  # Очереди, в которых состоит пользователь
+    if user_id == ADMIN_ID:
+        queues_list = get_all_queues(conn)  # Админ видит все очереди
 
     if queues_list:
-        reply_markup = build_queues_menu(queues_list)
-        await update.effective_message.reply_text("Выберите очередь:", reply_markup=reply_markup)
+        # Создаем кнопки для каждой очереди
+        buttons = [InlineKeyboardButton(queue['queue_name'], callback_data=f"queue_info_{queue['queue_id']}") for queue in queues_list]
+        
+        # Добавляем кнопки "Создать очередь" и "Назад"
+        buttons.append(InlineKeyboardButton("➕ Создать очередь", callback_data="create_queue"))
+        buttons.append(InlineKeyboardButton("🔙 Назад", callback_data="main_menu"))
+
+        # Создаем меню с кнопками
+        menu = build_menu(buttons, n_cols=1)  # 1 кнопка в строке
+        reply_markup = InlineKeyboardMarkup(menu)  # Передаем список списков кнопок
+
+        await update.effective_message.edit_text("📋 Выберите очередь:", reply_markup=reply_markup)
     else:
-        await update.effective_message.reply_text("❌ Нет доступных очередей.")
+        await update.effective_message.edit_text("❌ Нет доступных очередей.")
 
 async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
     """Обрабатывает данные Web App (геолокацию)."""
@@ -689,42 +727,33 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
     )
     context.user_data["location_message_id"] = sent_message.message_id
 
-async def main_menu_buttons(update: Update, context: CallbackContext) -> None:
-    """Обработчик кнопок главного меню."""
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "show_queues":
-        await show_queues(update, context)
-    elif query.data == "change_name":
-        await change_name_start(update, context)
 
 async def unknown(update: Update, context: CallbackContext) -> None:
     """Обработчик неизвестных CallbackQuery."""
     await update.callback_query.answer()
     await update.callback_query.message.reply_text("❌ Я не понимаю этот запрос!")
 
-async def help_command(update: Update, context: CallbackContext) -> None:
-    """Выводит список доступных команд."""
-    help_text = (
-        "/start - Начать (ввод имени)\n"
-        "/cancel - Отменить\n"
-        "/queue_info - Список людей в очереди\n"
-        "/show_queues - Показать доступные очереди\n"
-        "/leave - Покинуть очередь\n"
-        "/skip - Пропустить ход в очереди\n"
-        "/create_queue - Создать очередь\n"
-        "/delete_queue - Удалить очередь\n"
-        "/create_group - Создать группу\n"
-        "/delete_group - Удалить группу\n"
-        "/leave_group - Покинуть группу\n"
-        "/show_groups - Показать список групп\n"
-        "/broadcast - Создать рассылку\n"
-        "/delete_broadcast - Удалить рассылку\n"
-        f"По всем вопросам писать {ADMIN_USER_ID}\n"
-        "Но лучше, конечно, не писать\n"
-    )
-    await update.message.reply_text(help_text, parse_mode=None)
+# async def help_command(update: Update, context: CallbackContext) -> None:
+#     """Выводит список доступных команд."""
+#     help_text = (
+#         "/start - Начать (ввод имени)\n"
+#         "/cancel - Отменить\n"
+#         "/queue_info - Список людей в очереди\n"
+#         "/show_queues - Показать доступные очереди\n"
+#         "/leave - Покинуть очередь\n"
+#         "/skip - Пропустить ход в очереди\n"
+#         "/create_queue - Создать очередь\n"
+#         "/delete_queue - Удалить очередь\n"
+#         "/create_group - Создать группу\n"
+#         "/delete_group - Удалить группу\n"
+#         "/leave_group - Покинуть группу\n"
+#         "/show_groups - Показать список групп\n"
+#         "/broadcast - Создать рассылку\n"
+#         "/delete_broadcast - Удалить рассылку\n"
+#         f"По всем вопросам писать {ADMIN_USER_ID}\n"
+#         "Но лучше, конечно, не писать\n"
+#     )
+#     await update.message.reply_text(help_text, parse_mode=None)
 
 async def cancel(update: Update, context: CallbackContext) -> int:
     """Отменяет текущую команду и очищает данные."""
@@ -732,23 +761,32 @@ async def cancel(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("❌ Действие отменено.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
+async def help_command(update: Update, context: CallbackContext) -> None:
+    """Выводит список доступных команд."""
+    help_text = (
+        "/start - Начать (ввод имени)\n"
+        "/cancel - Отменить\n"
+        "/help - Помощь\n"
+    )
+    await update.message.reply_text(help_text, parse_mode=None)
+
 async def set_commands(app):
     """Устанавливает меню команд."""
     commands = [
         BotCommand("start", "Начать"),
         BotCommand("cancel", "Отмена"),
-        BotCommand("queue_info", "Список в очереди"),
-        BotCommand("show_queues", "Показать очереди"),
-        BotCommand("leave", "Покинуть очередь"),
-        BotCommand("skip", "Пропустить ход"),
-        BotCommand("create_queue", "Создать очередь"),
-        BotCommand("delete_queue", "Удалить очередь"),
-        BotCommand("create_group", "Создать группу"),
-        BotCommand("delete_group", "Удалить группу"),
-        BotCommand("leave_group", "Покинуть группу"),
-        BotCommand("show_groups", "Показать группы"),
-        BotCommand("broadcast", "Создать рассылку"),
-        BotCommand("delete_broadcast", "Удалить рассылку"),
+        # BotCommand("queue_info", "Список в очереди"),
+        # BotCommand("show_queues", "Показать очереди"),
+        # BotCommand("leave", "Покинуть очередь"),
+        # BotCommand("skip", "Пропустить ход"),
+        # BotCommand("create_queue", "Создать очередь"),
+        # BotCommand("delete_queue", "Удалить очередь"),
+        # BotCommand("create_group", "Создать группу"),
+        # BotCommand("delete_group", "Удалить группу"),
+        # BotCommand("leave_group", "Покинуть группу"),
+        # BotCommand("show_groups", "Показать группы"),
+        # BotCommand("broadcast", "Создать рассылку"),
+        # BotCommand("delete_broadcast", "Удалить рассылку"),
         BotCommand("help", "Помощь"),
     ]
     try:
@@ -757,7 +795,54 @@ async def set_commands(app):
     except Exception as e:
         logger.error(f"Не удалось установить команды: {e}")
 
-async def start_broadcast(update: Update, context: CallbackContext) -> int:
+async def show_broadcasts(update: Update, context: CallbackContext) -> None:
+    """Показывает список рассылок."""
+    conn = context.bot_data['conn']
+    user_id = update.effective_user.id
+
+    # Получаем рассылки пользователя
+    broadcasts = get_broadcasts(conn, user_id)
+    if user_id == ADMIN_ID:
+        broadcasts = get_broadcasts(conn)  # Админ видит все рассылки
+
+    if broadcasts:
+        # Создаем кнопки для каждой рассылки
+        buttons = [InlineKeyboardButton(broadcast['name'], callback_data=f"broadcast_info_{broadcast['id']}") for broadcast in broadcasts]
+        
+        # Добавляем кнопки "Создать рассылку" и "Назад"
+        buttons.append(InlineKeyboardButton("➕ Создать рассылку", callback_data="create_broadcast"))
+        buttons.append(InlineKeyboardButton("🔙 Назад", callback_data="main_menu"))
+
+        # Создаем меню с кнопками
+        menu = build_menu(buttons, n_cols=1)  # 1 кнопка в строке
+        reply_markup = InlineKeyboardMarkup(menu)  # Передаем список списков кнопок
+
+        await update.effective_message.edit_text("📋 Выберите рассылку:", reply_markup=reply_markup)
+    else:
+        await update.effective_message.edit_text("❌ Нет доступных рассылок.")
+
+async def broadcast_info_button(update: Update, context: CallbackContext) -> None:
+    """Обрабатывает нажатие кнопки просмотра информации о рассылке."""
+    query = update.callback_query
+    await query.answer()
+    conn = context.bot_data['conn']
+    broadcast_id = int(query.data.split("_")[2])
+
+    broadcast = get_broadcast_by_id(conn, broadcast_id)
+    if not broadcast:
+        await query.edit_message_text("❌ Ошибка: Рассылка не найдена.")
+        return
+
+    # Формируем кнопки
+    buttons = [
+        InlineKeyboardButton("❌ Отменить", callback_data=f"cancel_broadcast_{broadcast_id}"),
+        InlineKeyboardButton("🔙 Назад", callback_data="show_broadcasts")
+    ]
+    reply_markup = InlineKeyboardMarkup(build_menu(buttons, n_cols=1))
+
+    await query.edit_message_text(f"📋 Информация о рассылке {broadcast['name']}:", reply_markup=reply_markup)
+
+async def create_broadcast(update: Update, context: CallbackContext) -> int:
     """Начинает процесс создания рассылки."""
     await update.message.reply_text(
         "📝 Введите сообщение для рассылки (текст, фото или файл).\n"
@@ -1001,43 +1086,43 @@ async def load_scheduled_broadcasts(job_queue: JobQueue):
         )
         logger.info(f"Рассылка #{broadcast_id} запланирована на {send_time}.")
 
-async def delete_broadcast_start(update: Update, context: CallbackContext) -> int:
-    """Начинает процесс удаления рассылки."""
-    user_id = update.effective_user.id
-    conn = context.bot_data['conn']
+# async def delete_broadcast_start(update: Update, context: CallbackContext) -> int:
+#     """Начинает процесс удаления рассылки."""
+#     user_id = update.effective_user.id
+#     conn = context.bot_data['conn']
 
-    # Получаем список рассылок
-    if user_id == ADMIN_ID:
-        broadcasts = get_broadcasts(conn)  # Для админа — все рассылки
-    else:
-        broadcasts = get_broadcasts(conn, user_id)  # Для обычного пользователя — только его рассылки
+#     # Получаем список рассылок
+#     if user_id == ADMIN_ID:
+#         broadcasts = get_broadcasts(conn)  # Для админа — все рассылки
+#     else:
+#         broadcasts = get_broadcasts(conn, user_id)  # Для обычного пользователя — только его рассылки
 
-    if not broadcasts:
-        await update.message.reply_text("❌ Нет доступных рассылок для удаления.")
-        return ConversationHandler.END
+#     if not broadcasts:
+#         await update.message.reply_text("❌ Нет доступных рассылок для удаления.")
+#         return ConversationHandler.END
 
-    # Создаем меню с рассылками
-    buttons = []
-    for broadcast in broadcasts:
-        broadcast_id, message_text, message_photo, message_document, recipients, send_time = broadcast
-        # Формируем название рассылки
-        if message_text:
-            name = " ".join(message_text.split()[:2])  # Первые 2 слова текста
-            if len(name) > 16:
-                name = name[:16] + "..."
-        elif message_photo:
-            name = "Фото"
-        elif message_document:
-            name = "Файл"
-        else:
-            name = "Рассылка"
-        buttons.append(InlineKeyboardButton(name, callback_data=f"delete_broadcast_{broadcast_id}"))
+#     # Создаем меню с рассылками
+#     buttons = []
+#     for broadcast in broadcasts:
+#         broadcast_id, message_text, message_photo, message_document, recipients, send_time = broadcast
+#         # Формируем название рассылки
+#         if message_text:
+#             name = " ".join(message_text.split()[:2])  # Первые 2 слова текста
+#             if len(name) > 16:
+#                 name = name[:16] + "..."
+#         elif message_photo:
+#             name = "Фото"
+#         elif message_document:
+#             name = "Файл"
+#         else:
+#             name = "Рассылка"
+#         buttons.append(InlineKeyboardButton(name, callback_data=f"delete_broadcast_{broadcast_id}"))
 
-    reply_markup = InlineKeyboardMarkup([buttons])
-    await update.message.reply_text("📋 Выберите рассылку для удаления:", reply_markup=reply_markup)
-    return DELETE_BROADCAST
+#     reply_markup = InlineKeyboardMarkup([buttons])
+#     await update.message.reply_text("📋 Выберите рассылку для удаления:", reply_markup=reply_markup)
+#     return DELETE_BROADCAST
 
-async def delete_broadcast_confirm(update: Update, context: CallbackContext) -> int:
+async def cancel_broadcast_button(update: Update, context: CallbackContext) -> int:
     """Обрабатывает выбор рассылки для удаления."""
     query = update.callback_query
     await query.answer()
@@ -1049,7 +1134,7 @@ async def delete_broadcast_confirm(update: Update, context: CallbackContext) -> 
     await query.edit_message_text("✅ Рассылка успешно удалена.")
     return ConversationHandler.END
 
-async def create_group_start(update: Update, context: CallbackContext) -> int:
+async def create_group(update: Update, context: CallbackContext) -> int:
     """Начинает процесс создания группы."""
     await update.message.reply_text("📌 Введите название группы:")
     return GROUP_NAME
@@ -1110,12 +1195,28 @@ async def join_group(update: Update, context: CallbackContext) -> None:
 async def show_groups(update: Update, context: CallbackContext) -> None:
     """Показывает список групп."""
     conn = context.bot_data['conn']
-    groups = get_all_groups(conn)
-    if groups:
-        reply_markup = build_group_menu(groups)
-        await update.message.reply_text("📋 Выберите группу:", reply_markup=reply_markup)
+    user_id = update.effective_user.id
+
+    # Получаем группы пользователя
+    user_groups = get_user_groups(conn, user_id)
+    if user_id == ADMIN_ID:
+        user_groups = get_all_groups(conn)  # Админ видит все группы
+
+    if user_groups:
+        # Создаем кнопки для каждой группы
+        buttons = [InlineKeyboardButton(group['group_name'], callback_data=f"group_info_{group['group_id']}") for group in user_groups]
+        
+        # Добавляем кнопки "Создать группу" и "Назад"
+        buttons.append(InlineKeyboardButton("➕ Создать группу", callback_data="create_group"))
+        buttons.append(InlineKeyboardButton("🔙 Назад", callback_data="main_menu"))
+
+        # Создаем меню с кнопками
+        menu = build_menu(buttons, n_cols=1)  # 1 кнопка в строке
+        reply_markup = InlineKeyboardMarkup(menu)  # Передаем список списков кнопок
+
+        await update.effective_message.edit_text("📋 Выберите группу:", reply_markup=reply_markup)
     else:
-        await update.message.reply_text("❌ Нет доступных групп.")
+        await update.effective_message.edit_text("❌ Нет доступных групп.")
 
 async def leave_group_command(update:Update, context:CallbackContext) -> None:
     """Показывает список групп пользователя для выхода."""
@@ -1196,3 +1297,66 @@ async def delete_group_button(update: Update, context: CallbackContext) -> None:
 
     delete_group_db(conn, group_id)
     await query.edit_message_text(f"✅ Группа *{group_name}* успешно удалена.")
+
+async def main_menu_buttons(update: Update, context: CallbackContext) -> None:
+    """Обработчик кнопок главного меню."""
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "show_queues":
+        await show_queues(update, context)
+    elif query.data == "show_groups":
+        await show_groups(update, context)
+    elif query.data == "show_broadcasts":
+        await show_broadcasts(update, context)
+    elif query.data == "change_name":
+        await change_name_start(update, context)
+    elif query.data == "help":
+        await help_command(update, context)
+    elif query.data == "main_menu":
+        await start(update, context)
+
+async def group_info_button(update: Update, context: CallbackContext) -> None:
+    """Обрабатывает нажатие кнопки просмотра информации о группе."""
+    query = update.callback_query
+    await query.answer()
+    conn = context.bot_data['conn']
+    group_id = int(query.data.split("_")[2])
+
+    user_id = update.effective_user.id
+    group = get_group_by_id(conn, group_id)
+    if not group:
+        await query.edit_message_text("❌ Ошибка: Группа не найдена.")
+        return
+
+    # Получаем список участников группы
+    users_list = get_group_users(conn, group_id)
+    users_text = "\n".join([f"{i+1}. {get_user_name(conn, user_id)}" for i, user_id in enumerate(users_list)]) if users_list else "🔍 В группе пока нет участников."
+
+    # Формируем кнопки
+    buttons = []
+    if is_user_in_group(conn, group_id, user_id):
+        buttons.append(InlineKeyboardButton("🚪 Покинуть группу", callback_data=f"leave_group_{group_id}"))
+    else:
+        buttons.append(InlineKeyboardButton("➕ Присоединиться", callback_data=f"join_group_{group_id}"))
+
+    if group['creator_id'] == user_id or user_id == ADMIN_ID:
+        buttons.append(InlineKeyboardButton("❌ Удалить группу", callback_data=f"delete_group_{group_id}"))
+
+    buttons.append(InlineKeyboardButton("🔙 Назад", callback_data="show_groups"))
+
+    reply_markup = InlineKeyboardMarkup(build_menu(buttons, n_cols=1))
+    await query.edit_message_text(
+        f"📋 Информация о группе {group['group_name']}:\n\n"
+        f"👥 Участники:\n{users_text}",
+        reply_markup=reply_markup
+    )
+
+async def back_to_main_menu(update: Update, context: CallbackContext) -> None:
+    """Обрабатывает нажатие кнопки возврата в главное меню."""
+    query = update.callback_query
+    await query.answer()
+
+    # Редактируем текущее сообщение, чтобы вернуться в главное меню
+    reply_markup = build_main_menu()
+    await query.edit_message_text("Что вы хотите сделать?", reply_markup=reply_markup)

@@ -41,7 +41,7 @@ def main():
     loop.run_until_complete(load_scheduled_broadcasts(job_queue))
 
     create_queue_handler = ConversationHandler(
-        entry_points=[CommandHandler("create_queue", create_queue_start)],
+        entry_points=[CommandHandler("create_queue", create_queue)],
         states={
             QUEUE_NAME: [
                 CommandHandler("cancel", cancel),
@@ -85,7 +85,7 @@ def main():
     application.add_handler(change_name_handler)
 
     create_group_handler = ConversationHandler(
-        entry_points=[CommandHandler("create_group", create_group_start)],
+        entry_points=[CommandHandler("create_group", create_group)],
         states={
             GROUP_NAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, create_group_name)
@@ -97,7 +97,7 @@ def main():
 
     # ConversationHandler для рассылки
     broadcast_handler = ConversationHandler(
-        entry_points=[CommandHandler("broadcast", start_broadcast)],
+        entry_points=[CommandHandler("broadcast", create_broadcast)],
         states={
             BROADCAST_MESSAGE: [
                 CommandHandler("cancel", cancel),
@@ -120,18 +120,18 @@ def main():
     application.add_handler(broadcast_handler)
 
     # ConversationHandler для удаления рассылок
-    delete_broadcast_handler = ConversationHandler(
-        entry_points=[CommandHandler("delete_broadcast", delete_broadcast_start)],
-        states={
-            DELETE_BROADCAST: [
-                CallbackQueryHandler(delete_broadcast_confirm, pattern="^delete_broadcast_")
-            ]
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
+    # delete_broadcast_handler = ConversationHandler(
+    #     entry_points=[CommandHandler("delete_broadcast", delete_broadcast_start)],
+    #     states={
+    #         DELETE_BROADCAST: [
+    #             CallbackQueryHandler(delete_broadcast_confirm, pattern="^delete_broadcast_")
+    #         ]
+    #     },
+    #     fallbacks=[CommandHandler("cancel", cancel)],
+    # )
 
-    # Добавляем обработчик в приложение
-    application.add_handler(delete_broadcast_handler)
+    # # Добавляем обработчик в приложение
+    # application.add_handler(delete_broadcast_handler)
 
     application.add_handler(CommandHandler("start", handle_deeplink, filters.Regex(JOIN_QUEUE_PAYLOAD)))
 
@@ -147,18 +147,18 @@ def main():
     application.add_handler(start_conv_handler)
 
 
-    application.add_handler(CallbackQueryHandler(main_menu_buttons, pattern="^(show_queues|change_name)$"))
+    # application.add_handler(CallbackQueryHandler(main_menu_buttons, pattern="^(show_queues|change_name)$"))
 
     # Обработчики команд
-    application.add_handler(CommandHandler("delete_queue", delete_queue_start))
-    application.add_handler(CommandHandler("leave", leave_queue))
-    application.add_handler(CommandHandler("skip", skip_turn))
-    application.add_handler(CommandHandler("queue_info", queue_info))
-    application.add_handler(CommandHandler("show_queues", show_queues))
-    application.add_handler(CommandHandler("create_group", create_group_start))
-    application.add_handler(CommandHandler("delete_group", delete_group_start))
-    application.add_handler(CommandHandler("show_groups", show_groups)) 
-    application.add_handler(CommandHandler("leave_group", leave_group_command))
+    # application.add_handler(CommandHandler("delete_queue", delete_queue_start))
+    # application.add_handler(CommandHandler("leave", leave_queue))
+    # application.add_handler(CommandHandler("skip", skip_turn))
+    # application.add_handler(CommandHandler("queue_info", queue_info))
+    # application.add_handler(CommandHandler("show_queues", show_queues))
+    # application.add_handler(CommandHandler("create_group", create_group_start))
+    # application.add_handler(CommandHandler("delete_group", delete_group_start))
+    # application.add_handler(CommandHandler("show_groups", show_groups)) 
+    # application.add_handler(CommandHandler("leave_group", leave_group_command))
     application.add_handler(CommandHandler("cancel", cancel))
     application.add_handler(CommandHandler("help", help_command))
 
@@ -167,14 +167,30 @@ def main():
 
     
     # Обработчики нажатий кнопок
-    application.add_handler(CallbackQueryHandler(delete_group_button, pattern="^delete_group_"))
-    application.add_handler(CallbackQueryHandler(ask_location, pattern="^join_queue_"))
-    application.add_handler(CallbackQueryHandler(leave_button, pattern="^leave_"))
+    application.add_handler(CallbackQueryHandler(main_menu_buttons, pattern="^(show_queues|show_groups|show_broadcasts|change_name|help|main_menu)$"))
+    application.add_handler(CallbackQueryHandler(queue_info_button, pattern="^queue_info_"))
+    application.add_handler(CallbackQueryHandler(group_info_button, pattern="^group_info_"))
+    application.add_handler(CallbackQueryHandler(broadcast_info_button, pattern="^broadcast_info_"))
+    application.add_handler(CallbackQueryHandler(create_queue, pattern="^create_queue$"))
+    application.add_handler(CallbackQueryHandler(create_group, pattern="^create_group$"))
+    application.add_handler(CallbackQueryHandler(create_broadcast, pattern="^create_broadcast$"))
     application.add_handler(CallbackQueryHandler(skip_button, pattern="^skip_"))
-    application.add_handler(CallbackQueryHandler(queue_info_button, pattern="info_"))
+    application.add_handler(CallbackQueryHandler(leave_button, pattern="^leave_"))
     application.add_handler(CallbackQueryHandler(delete_queue_button, pattern="^delete_queue_"))
-    application.add_handler(CallbackQueryHandler(join_group, pattern="^join_group_"))
     application.add_handler(CallbackQueryHandler(leave_group_button, pattern="^leave_group_"))
+    application.add_handler(CallbackQueryHandler(delete_group_button, pattern="^delete_group_"))
+    application.add_handler(CallbackQueryHandler(cancel_broadcast_button, pattern="^cancel_broadcast_"))
+    application.add_handler(CallbackQueryHandler(ask_location, pattern="^join_queue_"))
+    application.add_handler(CallbackQueryHandler(join_group, pattern="^join_group_"))
+    application.add_handler(CallbackQueryHandler(back_to_main_menu, pattern="^back_to_main_menu$"))
+
+    # application.add_handler(CallbackQueryHandler(delete_group_button, pattern="^delete_group_"))
+    # application.add_handler(CallbackQueryHandler(queue_info_button, pattern="info_"))
+    # application.add_handler(CallbackQueryHandler(leave_button, pattern="^leave_"))
+    # application.add_handler(CallbackQueryHandler(skip_button, pattern="^skip_"))
+    # application.add_handler(CallbackQueryHandler(delete_queue_button, pattern="^delete_queue_"))
+    # application.add_handler(CallbackQueryHandler(join_group, pattern="^join_group_"))
+    # application.add_handler(CallbackQueryHandler(leave_group_button, pattern="^leave_group_"))
     application.add_handler(CallbackQueryHandler(unknown)) #Важно!
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
