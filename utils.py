@@ -6,7 +6,7 @@ from datetime import datetime
 from geopy.distance import geodesic
 from db import get_queue_by_id, get_queue_name_by_id, add_user_to_queue, get_queue_users_names, get_queue_users_ids, get_user_name, get_user_timezone
 from config import GET_LOCATION_URL
-from varibles import MAX_DISTANCE, GMT_PLUS_5
+from varibles import MAX_DISTANCE
 
 
 logger = logging.getLogger(__name__)
@@ -33,8 +33,7 @@ def build_location_menu():
         InlineKeyboardButton("🏛 МатФак", callback_data="location_mathfac"),
         InlineKeyboardButton("📍 Указать геолокацию", callback_data="location_custom")
     ]
-    menu = build_menu(buttons, n_cols=1)
-    return InlineKeyboardMarkup(menu)
+    return InlineKeyboardMarkup(build_menu(buttons)) 
 
 def validate_date(date_str: str) -> bool:
     """Проверяет корректность формата даты."""
@@ -82,8 +81,7 @@ async def check_distance_and_join(update, context, queue_id, user_id, lat, lon):
 async def create_join_queue_button(context, queue_id):
     """Создает кнопку 'Присоединиться к очереди'."""
     deeplink = f"https://t.me/{context.bot.username}?start=join_{queue_id}"
-    keyboard = [[InlineKeyboardButton("📌 Присоединиться к очереди", url=deeplink)]]
-    return InlineKeyboardMarkup(keyboard)
+    return InlineKeyboardMarkup([[InlineKeyboardButton("📌 Присоединиться к очереди", url=deeplink)]])
 
 async def send_queue_created_message(update, context, queue_name, start_time, reply_markup):
     """Отправляет сообщение об успешном создании очереди."""
@@ -108,33 +106,18 @@ async def send_queue_created_message(update, context, queue_name, start_time, re
 def build_queues_menu(queues_list):
     """Создает меню со списком очередей."""
     buttons = [InlineKeyboardButton(queue['queue_name'], callback_data=f"join_queue_{queue['queue_id']}") for queue in queues_list]
-    menu = build_menu(buttons, n_cols=1)
-    return InlineKeyboardMarkup(menu)
-
-def build_delete_queue_menu(queues_list):
-    """Создает меню для удаления очередей."""
-    buttons = [InlineKeyboardButton(queue['queue_name'], callback_data=f"delete_queue_{queue['queue_id']}") for queue in queues_list]
-    menu = build_menu(buttons, n_cols=1)
-    return InlineKeyboardMarkup(menu)
-
-def build_leave_queue_menu(user_queues):
-    """Создает меню для выхода из очередей."""
-    buttons = [InlineKeyboardButton(queue['queue_name'], callback_data=f"leave_{queue['queue_id']}") for queue in user_queues]
-    menu = build_menu(buttons, n_cols=1)
-    return InlineKeyboardMarkup(menu)
+    return InlineKeyboardMarkup(build_menu(buttons))
 
 def build_skip_turn_menu(user_queues):
     """Создает меню для пропуска хода."""
     buttons = [InlineKeyboardButton(queue['queue_name'], callback_data=f"skip_{queue['queue_id']}") for queue in user_queues]
-    menu = build_menu(buttons, n_cols=1)
-    return InlineKeyboardMarkup(menu)
+    return InlineKeyboardMarkup(build_menu(buttons))
 
 def build_queue_info_menu(user_queues):
     """Создает меню для просмотра информации об очередях."""
     buttons = [InlineKeyboardButton(queue['queue_name'], callback_data=f"info_{queue['queue_id']}") for queue in user_queues]
-    menu = build_menu(buttons, n_cols=1)
-    return InlineKeyboardMarkup(menu)
-    
+    return InlineKeyboardMarkup(build_menu(buttons))
+
 async def generate_queue_info_message(conn, queue_id: int, user_timezone_str: str) -> str:
     """Генерирует сообщение со списком участников очереди с учетом часового пояса пользователя."""
     queue_name = get_queue_name_by_id(conn, queue_id)
@@ -173,8 +156,7 @@ def build_web_app_location_button():
 def build_group_menu(groups: list[dict]) -> InlineKeyboardMarkup:
     """Создает меню со списком групп."""
     buttons = [InlineKeyboardButton(group['group_name'], callback_data=f"join_group_{group['group_id']}") for group in groups]
-    menu = build_menu(buttons, n_cols=1)
-    return InlineKeyboardMarkup(menu)
+    return InlineKeyboardMarkup(build_menu(buttons))
 
 def build_select_group_menu(groups: list[dict], with_no_group: bool = True) -> InlineKeyboardMarkup:
     """Создает меню выбора группы при создании очереди."""
@@ -182,21 +164,17 @@ def build_select_group_menu(groups: list[dict], with_no_group: bool = True) -> I
     if with_no_group:
         buttons.append(InlineKeyboardButton("Без группы", callback_data="select_group_none"))
     buttons.extend([InlineKeyboardButton(group['group_name'], callback_data=f"select_group_{group['group_id']}") for group in groups])
-    menu = build_menu(buttons, n_cols=1)
-    return InlineKeyboardMarkup(menu)
+    return InlineKeyboardMarkup(build_menu(buttons))
 
 def build_leave_group_menu(user_groups: list[dict])-> InlineKeyboardMarkup:
     """Создает меню для выхода из групп."""
     buttons = [InlineKeyboardButton(group['group_name'], callback_data=f"leave_group_{group['group_id']}") for group in user_groups]
-    menu = build_menu(buttons, n_cols=1)
-    return InlineKeyboardMarkup(menu)
+    return InlineKeyboardMarkup(build_menu(buttons))
 
 def build_delete_group_menu(groups: list[dict]) -> InlineKeyboardMarkup:
     """Создает меню для удаления групп."""
     buttons = [InlineKeyboardButton(group['group_name'], callback_data=f"delete_group_{group['group_id']}") for group in groups]
-
-    menu = build_menu(buttons, n_cols=1)
-    return InlineKeyboardMarkup(menu)
+    return InlineKeyboardMarkup(build_menu(buttons))
 
 def convert_time_to_user_timezone(server_time: datetime, user_timezone_str: str) -> datetime:
     """Конвертирует время из UTC в часовой пояс пользователя."""
@@ -212,5 +190,8 @@ def build_main_menu():
         InlineKeyboardButton("🔄 Сменить имя", callback_data="change_name"),
         InlineKeyboardButton("❓ Помощь", callback_data="help")
     ]
-    menu = build_menu(buttons, n_cols=2)
-    return InlineKeyboardMarkup(menu)
+    return InlineKeyboardMarkup(build_menu(buttons, n_cols=2))
+
+def error_handler(update: object, context: CallbackContext) -> None:
+    """Логирует ошибки, вызванные обновлениями."""
+    logger.error(msg="Exception while handling an update:", exc_info=context.error)
