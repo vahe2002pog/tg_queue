@@ -82,16 +82,16 @@ async def change_name(update: Update, context: CallbackContext) -> int:
 
 async def create_queue(update: Update, context: CallbackContext) -> int:
     """Начинает процесс создания очереди (выбор группы)."""
-    await update.message.reply_text(
+    await update.effective_message.reply_text(
         "📌 *Создание очереди*\n\n"
         "🔹 Введите *название очереди*.\n",
-        
     )
     return QUEUE_NAME
 
 async def create_queue_name(update: Update, context: CallbackContext) -> int:
     """Обработчик получения названия очереди."""
     context.user_data['queue_name'] = update.message.text
+    print("aaaaa")
     await update.message.reply_text(
         f"✅ *Название очереди:* `{update.message.text}`\n\n"
         "📅 Теперь введите *дату начала* в формате _ДД.ММ.ГГ_.\n"
@@ -139,9 +139,7 @@ async def create_queue_time(update: Update, context: CallbackContext) -> int:
         now_time = datetime.now(pytz.timezone(user_timezone_str)).strftime("%H:%M")
         context.user_data['queue_time'] = now_time
         await update.message.reply_text(
-            f"✅ *Выбрано текущее время:* `{now_time}` ⏰\n\n"
-            "📍 Теперь выберите *местоположение очереди*:",
-        )
+            f"✅ *Выбрано текущее время:* `{now_time}` ⏰\n\n")
     else:
         if not validate_time(update.message.text):
             await update.message.reply_text(
@@ -619,21 +617,22 @@ async def show_queues(update: Update, context: CallbackContext) -> None:
     if user_id == ADMIN_ID:
         queues_list = get_all_queues(conn)  # Админ видит все очереди
 
+     # Добавляем кнопки "Создать очередь" и "Назад"
+    buttons=[InlineKeyboardButton("➕ Создать очередь", callback_data="create_queue")]
+    buttons.append(InlineKeyboardButton("🔙 Назад", callback_data="main_menu"))
+
     if queues_list:
         # Создаем кнопки для каждой очереди
-        buttons = [InlineKeyboardButton(queue['queue_name'], callback_data=f"queue_info_{queue['queue_id']}") for queue in queues_list]
-        
-        # Добавляем кнопки "Создать очередь" и "Назад"
-        buttons.append(InlineKeyboardButton("➕ Создать очередь", callback_data="create_queue"))
-        buttons.append(InlineKeyboardButton("🔙 Назад", callback_data="main_menu"))
+        for queue in reversed(queues_list):
+            buttons.insert(0, InlineKeyboardButton(queue['queue_name'], callback_data=f"queue_info_{queue['queue_id']}"))
 
-        # Создаем меню с кнопками
-        menu = build_menu(buttons, n_cols=1)  # 1 кнопка в строке
-        reply_markup = InlineKeyboardMarkup(menu)  # Передаем список списков кнопок
-
+        menu = build_menu(buttons, n_cols=1)
+        reply_markup = InlineKeyboardMarkup(menu)
         await update.effective_message.edit_text("📋 Выберите очередь:", reply_markup=reply_markup)
     else:
-        await update.effective_message.edit_text("❌ Нет доступных очередей.")
+        menu = build_menu(buttons, n_cols=1)
+        reply_markup = InlineKeyboardMarkup(menu)
+        await update.effective_message.edit_text("❌ Нет доступных очередей.", reply_markup=reply_markup)
 
 async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
     """Обрабатывает данные Web App (геолокацию)."""
@@ -805,13 +804,15 @@ async def show_broadcasts(update: Update, context: CallbackContext) -> None:
     if user_id == ADMIN_ID:
         broadcasts = get_broadcasts(conn)  # Админ видит все рассылки
 
+    # Добавляем кнопки "Создать рассылку" и "Назад"
+    buttons = [InlineKeyboardButton("➕ Создать рассылку", callback_data="create_broadcast")]
+    buttons.append(InlineKeyboardButton("🔙 Назад", callback_data="main_menu"))
+
+
     if broadcasts:
         # Создаем кнопки для каждой рассылки
-        buttons = [InlineKeyboardButton(broadcast['name'], callback_data=f"broadcast_info_{broadcast['id']}") for broadcast in broadcasts]
-        
-        # Добавляем кнопки "Создать рассылку" и "Назад"
-        buttons.append(InlineKeyboardButton("➕ Создать рассылку", callback_data="create_broadcast"))
-        buttons.append(InlineKeyboardButton("🔙 Назад", callback_data="main_menu"))
+        for broadcast in reversed(broadcasts):
+            buttons.insert(0, InlineKeyboardButton(broadcast['broadcast_name'], callback_data=f"broadcast_info_{broadcast['broadcast_id']}"))
 
         # Создаем меню с кнопками
         menu = build_menu(buttons, n_cols=1)  # 1 кнопка в строке
@@ -819,7 +820,10 @@ async def show_broadcasts(update: Update, context: CallbackContext) -> None:
 
         await update.effective_message.edit_text("📋 Выберите рассылку:", reply_markup=reply_markup)
     else:
-        await update.effective_message.edit_text("❌ Нет доступных рассылок.")
+        # Создаем меню с кнопками
+        menu = build_menu(buttons, n_cols=1)  # 1 кнопка в строке
+        reply_markup = InlineKeyboardMarkup(menu)  # Передаем список списков кнопок
+        await update.effective_message.edit_text("❌ Нет доступных рассылок.", reply_markup=reply_markup)
 
 async def broadcast_info_button(update: Update, context: CallbackContext) -> None:
     """Обрабатывает нажатие кнопки просмотра информации о рассылке."""
@@ -844,7 +848,7 @@ async def broadcast_info_button(update: Update, context: CallbackContext) -> Non
 
 async def create_broadcast(update: Update, context: CallbackContext) -> int:
     """Начинает процесс создания рассылки."""
-    await update.message.reply_text(
+    await update.effective_message.reply_text(
         "📝 Введите сообщение для рассылки (текст, фото или файл).\n"
     )
     return BROADCAST_MESSAGE
@@ -945,6 +949,7 @@ async def broadcast_schedule(update: Update, context: CallbackContext) -> int:
 
     if update.message.text.lower() == "/now":
         send_time = datetime.now(pytz.UTC)
+        send_time_utc = send_time  # Инициализируем send_time_utc
     else:
         try:
             user_timezone_str = get_user_timezone(conn, user_id)
@@ -1136,7 +1141,7 @@ async def cancel_broadcast_button(update: Update, context: CallbackContext) -> i
 
 async def create_group(update: Update, context: CallbackContext) -> int:
     """Начинает процесс создания группы."""
-    await update.message.reply_text("📌 Введите название группы:")
+    await update.effective_message.reply_text("📌 Введите название группы:")
     return GROUP_NAME
 
 async def create_group_name(update: Update, context: CallbackContext) -> int:
@@ -1202,21 +1207,25 @@ async def show_groups(update: Update, context: CallbackContext) -> None:
     if user_id == ADMIN_ID:
         user_groups = get_all_groups(conn)  # Админ видит все группы
 
+    # Добавляем кнопки "Создать группу" и "Назад"
+    buttons=[InlineKeyboardButton("➕ Создать группу", callback_data="create_group")]
+    buttons.append(InlineKeyboardButton("🔙 Назад", callback_data="main_menu"))
+
     if user_groups:
         # Создаем кнопки для каждой группы
-        buttons = [InlineKeyboardButton(group['group_name'], callback_data=f"group_info_{group['group_id']}") for group in user_groups]
-        
-        # Добавляем кнопки "Создать группу" и "Назад"
-        buttons.append(InlineKeyboardButton("➕ Создать группу", callback_data="create_group"))
-        buttons.append(InlineKeyboardButton("🔙 Назад", callback_data="main_menu"))
-
+        for group in reversed(user_groups):
+            buttons.insert(0, InlineKeyboardButton(group['group_name'], callback_data=f"group_info_{group['group_id']}"))
+      
         # Создаем меню с кнопками
         menu = build_menu(buttons, n_cols=1)  # 1 кнопка в строке
         reply_markup = InlineKeyboardMarkup(menu)  # Передаем список списков кнопок
 
         await update.effective_message.edit_text("📋 Выберите группу:", reply_markup=reply_markup)
     else:
-        await update.effective_message.edit_text("❌ Нет доступных групп.")
+        # Создаем меню с кнопками
+        menu = build_menu(buttons, n_cols=1)  # 1 кнопка в строке
+        reply_markup = InlineKeyboardMarkup(menu)  # Передаем список списков кнопок
+        await update.effective_message.edit_text("❌ Нет доступных групп.", reply_markup=reply_markup)
 
 async def leave_group_command(update:Update, context:CallbackContext) -> None:
     """Показывает список групп пользователя для выхода."""

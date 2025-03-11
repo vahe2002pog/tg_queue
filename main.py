@@ -41,7 +41,7 @@ def main():
     loop.run_until_complete(load_scheduled_broadcasts(job_queue))
 
     create_queue_handler = ConversationHandler(
-        entry_points=[CommandHandler("create_queue", create_queue)],
+        entry_points=[CallbackQueryHandler(create_queue, pattern="^create_queue$")],
         states={
             QUEUE_NAME: [
                 CommandHandler("cancel", cancel),
@@ -85,7 +85,7 @@ def main():
     application.add_handler(change_name_handler)
 
     create_group_handler = ConversationHandler(
-        entry_points=[CommandHandler("create_group", create_group)],
+        entry_points=[CallbackQueryHandler(create_group, pattern="^create_group$")],
         states={
             GROUP_NAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, create_group_name)
@@ -97,7 +97,7 @@ def main():
 
     # ConversationHandler для рассылки
     broadcast_handler = ConversationHandler(
-        entry_points=[CommandHandler("broadcast", create_broadcast)],
+        entry_points=[CallbackQueryHandler(create_broadcast, pattern="^create_broadcast$")],
         states={
             BROADCAST_MESSAGE: [
                 CommandHandler("cancel", cancel),
@@ -171,9 +171,6 @@ def main():
     application.add_handler(CallbackQueryHandler(queue_info_button, pattern="^queue_info_"))
     application.add_handler(CallbackQueryHandler(group_info_button, pattern="^group_info_"))
     application.add_handler(CallbackQueryHandler(broadcast_info_button, pattern="^broadcast_info_"))
-    application.add_handler(CallbackQueryHandler(create_queue, pattern="^create_queue$"))
-    application.add_handler(CallbackQueryHandler(create_group, pattern="^create_group$"))
-    application.add_handler(CallbackQueryHandler(create_broadcast, pattern="^create_broadcast$"))
     application.add_handler(CallbackQueryHandler(skip_button, pattern="^skip_"))
     application.add_handler(CallbackQueryHandler(leave_button, pattern="^leave_"))
     application.add_handler(CallbackQueryHandler(delete_queue_button, pattern="^delete_queue_"))
