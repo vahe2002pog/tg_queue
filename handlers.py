@@ -812,7 +812,19 @@ async def show_broadcasts(update: Update, context: CallbackContext) -> None:
     if broadcasts:
         # Создаем кнопки для каждой рассылки
         for broadcast in reversed(broadcasts):
-            buttons.insert(0, InlineKeyboardButton(broadcast['broadcast_name'], callback_data=f"broadcast_info_{broadcast['broadcast_id']}"))
+            broadcast_id, message_text, message_photo, message_document, recipients, send_time = broadcast
+            # Формируем название рассылки
+            if message_text:
+                name = " ".join(message_text.split()[:2])
+                if len(name) > 16:
+                    name = name[:16] + "..."
+            elif message_photo:
+                name = "Фото"
+            elif message_document:
+                name = "Файл"
+            else:
+                name = "Рассылка"
+            buttons.insert(0, InlineKeyboardButton(name, callback_data=f"broadcast_info_{broadcast_id}"))
 
         # Создаем меню с кнопками
         menu = build_menu(buttons, n_cols=1)  # 1 кнопка в строке
@@ -826,25 +838,47 @@ async def show_broadcasts(update: Update, context: CallbackContext) -> None:
         await update.effective_message.edit_text("❌ Нет доступных рассылок.", reply_markup=reply_markup)
 
 async def broadcast_info_button(update: Update, context: CallbackContext) -> None:
-    """Обрабатывает нажатие кнопки просмотра информации о рассылке."""
+    """Обрабатывает нажатие кнопки просмотра информации о рассылке и отправляет сообщения только нажавшему пользователю."""
     query = update.callback_query
     await query.answer()
     conn = context.bot_data['conn']
-    broadcast_id = int(query.data.split("_")[2])
+    broadcast_id = int(query.data.split("_")[2])  # Извлекаем ID рассылки из callback_data
 
+    # Получаем данные о рассылке
     broadcast = get_broadcast_by_id(conn, broadcast_id)
     if not broadcast:
         await query.edit_message_text("❌ Ошибка: Рассылка не найдена.")
         return
 
-    # Формируем кнопки
+    # Формируем кнопки (оставляем их без изменений)
     buttons = [
         InlineKeyboardButton("❌ Отменить", callback_data=f"cancel_broadcast_{broadcast_id}"),
         InlineKeyboardButton("🔙 Назад", callback_data="show_broadcasts")
     ]
     reply_markup = InlineKeyboardMarkup(build_menu(buttons, n_cols=1))
 
-    await query.edit_message_text(f"📋 Информация о рассылке {broadcast['name']}:", reply_markup=reply_markup)
+    # Отправляем сообщение с информацией о рассылке (оставляем кнопки)
+    await query.edit_message_text(f"📋 Информация о рассылке:", reply_markup=reply_markup, parse_mode=None)
+
+    # Получаем данные рассылки
+    message_text, message_photo, message_document = broadcast
+
+    # Отправляем сообщения только тому пользователю, который нажал на кнопку
+    user_id = query.from_user.id
+    try:
+        if message_text:
+            # Убедитесь, что parse_mode указан корректно (например, None, MarkdownV2 или HTML)
+            await context.bot.send_message(chat_id=user_id, text=message_text, parse_mode=None)
+        if message_photo:
+            await context.bot.send_photo(chat_id=user_id, photo=message_photo)
+        if message_document:
+            await context.bot.send_document(chat_id=user_id, document=message_document)
+    except Exception as e:
+        logger.error(f"Ошибка при отправке рассылки пользователю {user_id}: {e}")
+        await query.edit_message_text(f"❌ Не удалось отправить рассылку. Ошибка: {e}", reply_markup=reply_markup)
+
+    # Помечаем рассылку как удаленную (если нужно)
+    mark_broadcast_as_deleted(conn, broadcast_id)
 
 async def create_broadcast(update: Update, context: CallbackContext) -> int:
     """Начинает процесс создания рассылки."""
