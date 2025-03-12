@@ -214,19 +214,13 @@ async def send_notification_choice(update: Update, context: CallbackContext) -> 
     await finish_queue_creation(update, context)
     return ConversationHandler.END
 
-async def send_group_notification(update:Update, context:CallbackContext):
-    """Отправка уведомления участникам"""
+async def send_group_notification(update: Update, context: CallbackContext) -> None:
+    """Отправка уведомления участникам."""
     conn = context.bot_data['conn']
     group_id = context.user_data.get('group_id')
     queue_id = context.user_data.get('queue_id')
     queue_creator_id = update.effective_user.id
     queue_name = context.user_data.get('queue_name')
-
-    #Получаем дату и время для сообщения
-    date_str = context.user_data['queue_date']
-    time_str = context.user_data['queue_time']
-    start_time = datetime.strptime(f"{date_str} {time_str}", "%d.%m.%y %H:%M")
-
 
     if not group_id or not queue_id:
         logger.error("Не удалось отправить уведомление: нет group_id или queue_id")
@@ -238,19 +232,36 @@ async def send_group_notification(update:Update, context:CallbackContext):
         return
 
     reply_markup = await create_join_queue_button(context, queue_id)
-    message_text = (
-        f"✅ Создана новая очередь *{queue_name}*! 🕒\n"
-        f"📆 Дата: *{start_time.strftime('%d.%m.%y')}*\n"
-        f"⏰ Время: *{start_time.strftime('%H:%M')}*\n\n"
-        f"📍 *Локация:* (смотрите выше)\n\n"
-        f"➡ *Нажмите кнопку, чтобы присоединиться!*")
+
+    # Получаем start_time из БД (оно в UTC)
+    queue = await get_queue_by_id(conn, queue_id)
+    if not queue:
+        logger.error(f"Очередь с id {queue_id} не найдена при отправке уведомлений.")
+        return
+
+    start_time = queue['start_time']
+
 
     for user_id in users:
         if user_id != queue_creator_id:
             try:
+                # 1. Получаем часовой пояс ПОЛУЧАТЕЛЯ
+                user_timezone_str = get_user_timezone(conn, user_id)
+
+                # 2. Конвертируем start_time в часовой пояс ПОЛУЧАТЕЛЯ
+                start_time_user = convert_time_to_user_timezone(start_time, user_timezone_str)
+
+                # 3. Формируем сообщение с временем в часовом поясе ПОЛУЧАТЕЛЯ
+                message_text = (
+                    f"✅ Создана новая очередь *{queue_name}*! 🕒\n"
+                    f"📆 Дата: *{start_time_user.strftime('%d.%m.%y')}*\n"
+                    f"⏰ Время: *{start_time_user.strftime('%H:%M')}*\n\n"
+                    f"📍 *Локация:* (смотрите выше)\n\n"
+                    f"➡ *Нажмите кнопку, чтобы присоединиться!*")
+
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text = message_text,
+                    text=message_text,
                     reply_markup=reply_markup,
                     link_preview_options=LinkPreviewOptions(is_disabled=True)
                 )

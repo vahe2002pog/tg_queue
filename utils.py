@@ -87,16 +87,15 @@ async def send_queue_created_message(update, context, queue_name, start_time, re
     """Отправляет сообщение об успешном создании очереди."""
     # Получаем часовой пояс пользователя
     user_timezone_str = get_user_timezone(conn = context.bot_data['conn'], user_id = update.effective_user.id)
-    user_timezone = pytz.timezone(user_timezone_str)
 
     # Конвертируем время из UTC в часовой пояс пользователя
-    start_time_localized = start_time.astimezone(user_timezone)
+    # start_time_localized = convert_time_to_user_timezone(start_time, user_timezone_str)
 
     # Формируем сообщение с локальным временем пользователя
     message = await update.effective_message.reply_text(
         f"✅ Очередь *{queue_name}* успешно создана! 🕒\n"
-        f"📆 Дата: *{start_time_localized.strftime('%d.%m.%y')}*\n"
-        f"⏰ Время: *{start_time_localized.strftime('%H:%M')}*\n\n"
+        f"📆 Дата: *{start_time.strftime('%d.%m.%y')}*\n"
+        f"⏰ Время: *{start_time.strftime('%H:%M')}*\n\n"
         f"➡ *Нажмите кнопку, чтобы присоединиться!*",
         reply_markup=reply_markup,
         link_preview_options=LinkPreviewOptions(is_disabled=True)
@@ -179,7 +178,14 @@ def build_delete_group_menu(groups: list[dict]) -> InlineKeyboardMarkup:
 def convert_time_to_user_timezone(server_time: datetime, user_timezone_str: str) -> datetime:
     """Конвертирует время из UTC в часовой пояс пользователя."""
     user_timezone = pytz.timezone(user_timezone_str)
-    return server_time.replace(tzinfo=pytz.UTC).astimezone(user_timezone)
+
+    # Проверяем, есть ли уже таймзона у server_time
+    if server_time.tzinfo is None:
+        server_time = pytz.UTC.localize(server_time)  # Присваиваем UTC
+    else:
+        server_time = server_time.astimezone(pytz.UTC)  # Переводим в UTC, если уже есть таймзона
+    
+    return server_time.astimezone(user_timezone)
 
 def build_main_menu():
     """Создает клавиатуру главного меню."""
