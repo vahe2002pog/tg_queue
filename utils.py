@@ -80,7 +80,7 @@ async def check_distance_and_join(update, context, queue_id, user_id, lat, lon):
 
 async def create_join_queue_button(context, queue_id):
     """Создает кнопку 'Присоединиться к очереди'."""
-    deeplink = f"https://t.me/{context.bot.username}?start=join_{queue_id}"
+    deeplink = f"https://t.me/{context.bot.username}?start=join_queue_{queue_id}"
     return InlineKeyboardMarkup([[InlineKeyboardButton("📌 Присоединиться к очереди", url=deeplink)]])
 
 async def send_queue_created_message(update, context, queue_name, start_time, reply_markup):
