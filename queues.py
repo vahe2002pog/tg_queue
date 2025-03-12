@@ -303,7 +303,7 @@ async def handle_deeplink(update: Update, context: CallbackContext) -> None:
         payload = message_text.split()[1]
         if payload.startswith("join_queue_"):
             try:
-                queue_id = int(payload[5:])
+                queue_id = int(payload[11:])
             except ValueError:
                 await update.message.reply_text("❌ Неверный формат ID очереди.")
                 return

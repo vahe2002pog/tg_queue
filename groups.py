@@ -3,7 +3,7 @@ import logging
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackContext, ConversationHandler
 from config import ADMIN_ID
-from varibles import GROUP_NAME, JOIN_GROUP_PAYLOAD
+from varibles import GROUP_NAME
 from db import *
 from utils import *
 logger = logging.getLogger(__name__)
