@@ -430,18 +430,22 @@ def is_user_in_queue(conn, queue_id: int, user_id: int) -> bool:
         return False
 
 def get_user_queues(conn, user_id: int) -> list[dict]:
-    """Получает список очередей, в которых состоит пользователь."""
+    """Получает список очередей, доступных пользователю."""
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT queues.queue_name, queues.queue_id FROM queues
-            JOIN queue_users ON queues.queue_id = queue_users.queue_id
-            WHERE queue_users.user_id = ?
-        """, (user_id,))
+            SELECT queues.queue_name, queues.queue_id 
+            FROM queues
+            LEFT JOIN groups ON queues.group_id = groups.group_id
+            LEFT JOIN group_users ON groups.group_id = group_users.group_id
+            WHERE queues.group_id IS NULL 
+               OR group_users.user_id = ?
+               OR groups.creator_id = ?
+        """, (user_id, user_id))
         results = cursor.fetchall()
         return [{"queue_name": row[0], "queue_id": row[1]} for row in results]
     except sqlite3.Error as e:
-        logger.error(f"Ошибка при получении очередей пользователя: {e}")
+        logger.error(f"Ошибка при получении доступных очередей пользователя: {e}")
         return []
 
 def delete_queue(conn, queue_id: int):
