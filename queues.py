@@ -215,12 +215,14 @@ async def send_notification_choice(update: Update, context: CallbackContext) -> 
     return ConversationHandler.END
 
 async def send_group_notification(update: Update, context: CallbackContext) -> None:
-    """Отправка уведомления участникам."""
+    """Отправка уведомления участникам группы с локацией."""
     conn = context.bot_data['conn']
     group_id = context.user_data.get('group_id')
     queue_id = context.user_data.get('queue_id')
     queue_creator_id = update.effective_user.id
     queue_name = context.user_data.get('queue_name')
+    latitude = context.user_data.get('latitude')
+    longitude = context.user_data.get('longitude')
 
     if not group_id or not queue_id:
         logger.error("Не удалось отправить уведомление: нет group_id или queue_id")
@@ -241,9 +243,8 @@ async def send_group_notification(update: Update, context: CallbackContext) -> N
 
     start_time = queue['start_time']
 
-
     for user_id in users:
-        if user_id != queue_creator_id:
+        # if user_id != queue_creator_id:
             try:
                 # 1. Получаем часовой пояс ПОЛУЧАТЕЛЯ
                 user_timezone_str = get_user_timezone(conn, user_id)
@@ -251,7 +252,14 @@ async def send_group_notification(update: Update, context: CallbackContext) -> N
                 # 2. Конвертируем start_time в часовой пояс ПОЛУЧАТЕЛЯ
                 start_time_user = convert_time_to_user_timezone(start_time, user_timezone_str)
 
-                # 3. Формируем сообщение с временем в часовом поясе ПОЛУЧАТЕЛЯ
+                # 3. Отправляем локацию
+                await context.bot.send_location(
+                    chat_id=user_id,
+                    latitude=latitude,
+                    longitude=longitude
+                )
+
+                # 4. Формируем сообщение с временем в часовом поясе ПОЛУЧАТЕЛЯ
                 message_text = (
                     f"✅ Создана новая очередь *{queue_name}*! 🕒\n"
                     f"📆 Дата: *{start_time_user.strftime('%d.%m.%y')}*\n"
@@ -259,6 +267,7 @@ async def send_group_notification(update: Update, context: CallbackContext) -> N
                     f"📍 *Локация:* (смотрите выше)\n\n"
                     f"➡ *Нажмите кнопку, чтобы присоединиться!*")
 
+                # 5. Отправляем текстовое сообщение с кнопкой
                 await context.bot.send_message(
                     chat_id=user_id,
                     text=message_text,
