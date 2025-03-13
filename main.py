@@ -157,6 +157,21 @@ def main():
     application.add_handler(CallbackQueryHandler(join_group, pattern="^join_group_"))
     application.add_handler(CallbackQueryHandler(back_to_main_menu, pattern="^back_to_main_menu$"))
 
+
+    # Обработчики для подтверждения действий
+    application.add_handler(CallbackQueryHandler(confirm_leave_queue, pattern="^confirm_leave_queue_"))
+    application.add_handler(CallbackQueryHandler(cancel_leave_queue, pattern="^cancel_leave_queue_"))
+    application.add_handler(CallbackQueryHandler(confirm_skip, pattern="^confirm_skip_"))
+    application.add_handler(CallbackQueryHandler(cancel_skip, pattern="^cancel_skip_"))
+    application.add_handler(CallbackQueryHandler(confirm_delete_queue, pattern="^confirm_delete_queue_"))
+    application.add_handler(CallbackQueryHandler(cancel_delete_queue, pattern="^cancel_delete_queue_"))
+    application.add_handler(CallbackQueryHandler(confirm_delete_group, pattern="^confirm_delete_group_"))
+    application.add_handler(CallbackQueryHandler(cancel_delete_group, pattern="^cancel_delete_group_"))
+    application.add_handler(CallbackQueryHandler(confirm_leave_group, pattern="^confirm_leave_group_"))
+    application.add_handler(CallbackQueryHandler(cancel_leave_group, pattern="^cancel_leave_group_"))
+    application.add_handler(CallbackQueryHandler(confirm_cancel_broadcast, pattern="^confirm_cancel_broadcast_"))
+    application.add_handler(CallbackQueryHandler(cancel_cancel_broadcast, pattern="^cancel_cancel_broadcast_"))
+
     application.add_handler(CallbackQueryHandler(unknown)) #Важно!
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 

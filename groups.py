@@ -144,82 +144,84 @@ async def show_groups(update: Update, context: CallbackContext) -> None:
         # Иначе отправляем новое сообщение
         await context.bot.send_message(chat_id, "📋 Выберите группу:", reply_markup=reply_markup)
 
-async def leave_group_command(update:Update, context:CallbackContext) -> None:
-    """Показывает список групп пользователя для выхода."""
-    conn = context.bot_data['conn']
-    user_id = update.effective_user.id
-
-    user_groups = get_user_groups(conn,user_id)
-
-    if not user_groups:
-        await update.message.reply_text("❌ Вы не состоите ни в одной группе")
-        return
-
-    reply_markup = build_leave_group_menu(user_groups) # Используем функцию из utils
-    await update.message.reply_text("📋 Выберите группу для выхода", reply_markup=reply_markup)
-
-async def leave_group_button(update:Update, context:CallbackContext) -> None:
+async def leave_group_button(update: Update, context: CallbackContext) -> None:
     """Обрабатывает выход пользователя из группы."""
     query = update.callback_query
     await query.answer()
-    conn = context.bot_data['conn']
-    user_id = update.effective_user.id
     group_id = int(query.data.split("_")[2])
 
+    # Создаем кнопки подтверждения
+    keyboard = [
+        [InlineKeyboardButton("✅ Да", callback_data=f"confirm_leave_group_{group_id}")],
+        [InlineKeyboardButton("❌ Нет", callback_data=f"cancel_leave_group_{group_id}")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text("Подтвердите выход из группы:", reply_markup=reply_markup)
+
+async def confirm_leave_group(update: Update, context: CallbackContext) -> None:
+    """Подтверждает выход из группы."""
+    query = update.callback_query
+    await query.answer()
+    group_id = int(query.data.split("_")[3])
+
+    conn = context.bot_data['conn']
+    user_id = update.effective_user.id
     group_name = get_group_name_by_id(conn, group_id)
+
     if not group_name:
-        await query.edit_message_text("❌ Ошибка: Не удалось получить имя очереди.")
+        await query.edit_message_text("❌ Ошибка: Не удалось получить имя группы.")
         return
 
     remove_user_from_group(conn, group_id, user_id)
     await query.edit_message_text(f"✅ Вы вышли из группы: *{group_name}*.")
 
-    # Устанавливаем флаг edit_message в False и сохраняем chat_id
     context.user_data['chat_id'] = query.message.chat_id
     context.user_data['edit_message'] = False
-    await show_groups(update, context)  # Передаем update и context
+    await show_groups(update, context)
 
+async def cancel_leave_group(update: Update, context: CallbackContext) -> None:
+    """Отменяет выход из группы."""
+    query = update.callback_query
+    await query.answer()
+    group_id = int(query.data.split("_")[3])
 
-async def delete_group_start(update: Update, context: CallbackContext) -> None:
-    """Начинает процесс удаления группы (показывает список групп)."""
-    user_id = update.effective_user.id
     conn = context.bot_data['conn']
+    group_name = get_group_name_by_id(conn, group_id)
 
-    if user_id == ADMIN_ID:
-        groups_list = get_all_groups(conn)  # Админ видит все группы
-    else:
-        # Показываем пользователю только те группы, которые он создал
-        groups_list = [g for g in get_all_groups(conn) if get_group_by_id(conn, g['group_id'])['creator_id'] == user_id]
-
-    if not groups_list:
-        await update.message.reply_text("❌ Нет доступных групп для удаления.")
+    if not group_name:
+        await query.edit_message_text("❌ Ошибка: Не удалось получить имя группы.")
         return
 
-    reply_markup = build_delete_group_menu(groups_list)  # Используем функцию из utils
-    await update.message.reply_text("📋 Выберите группу для *удаления*:", reply_markup=reply_markup)
+    await query.edit_message_text(f"❌ Выход из группы *{group_name}* отменен.")
+    await group_info_button(update, context)
+
 
 async def delete_group_button(update: Update, context: CallbackContext) -> None:
     """Обрабатывает нажатие кнопки удаления группы."""
     query = update.callback_query
     await query.answer()
+    group_id = int(query.data.split("_")[2])
+
+    # Создаем кнопки подтверждения
+    keyboard = [
+        [InlineKeyboardButton("✅ Да", callback_data=f"confirm_delete_group_{group_id}")],
+        [InlineKeyboardButton("❌ Нет", callback_data=f"cancel_delete_group_{group_id}")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text("Подтвердите удаление группы:", reply_markup=reply_markup)
+
+async def confirm_delete_group(update: Update, context: CallbackContext) -> None:
+    """Подтверждает удаление группы."""
+    query = update.callback_query
+    await query.answer()
+    group_id = int(query.data.split("_")[3])
+
     conn = context.bot_data['conn']
-
     user_id = update.effective_user.id
-    try:
-        group_id = int(query.data.split("_")[2])
-    except (IndexError, ValueError):
-        await query.edit_message_text("❌ Ошибка: некорректный формат")
-        return
-
-    group = get_group_by_id(conn, group_id)
-    if not group:
-        await query.edit_message_text("❌ Ошибка: Группа не найдена.")
-        return
-    if user_id != ADMIN_ID and group['creator_id'] != user_id:
-         await query.edit_message_text("⚠️ Вы не можете удалить эту группу.")
-         return
-
     group_name = get_group_name_by_id(conn, group_id)
+
     if not group_name:
         await query.edit_message_text("❌ Ошибка: Не удалось получить имя группы.")
         return
@@ -227,17 +229,44 @@ async def delete_group_button(update: Update, context: CallbackContext) -> None:
     delete_group_db(conn, group_id)
     await query.edit_message_text(f"✅ Группа *{group_name}* успешно удалена.")
 
-    # Устанавливаем флаг edit_message в False и сохраняем chat_id
     context.user_data['chat_id'] = query.message.chat_id
     context.user_data['edit_message'] = False
-    await show_groups(update, context) # Передаем update и context
+    await show_groups(update, context)
+
+async def cancel_delete_group(update: Update, context: CallbackContext) -> None:
+    """Отменяет удаление группы."""
+    query = update.callback_query
+    await query.answer()
+    group_id = int(query.data.split("_")[3])
+
+    conn = context.bot_data['conn']
+    group_name = get_group_name_by_id(conn, group_id)
+
+    if not group_name:
+        await query.edit_message_text("❌ Ошибка: Не удалось получить имя группы.")
+        return
+
+    await query.edit_message_text(f"❌ Удаление группы *{group_name}* отменено.")
+    await group_info_button(update, context)
 
 async def group_info_button(update: Update, context: CallbackContext) -> None:
     """Обрабатывает нажатие кнопки просмотра информации о группе."""
     query = update.callback_query
-    await query.answer()
+    await query.answer()  # query.answer() нужен, если мы вызываем edit_message_text
     conn = context.bot_data['conn']
-    group_id = int(query.data.split("_")[2])
+
+    group_id = None
+    if group_id is None:
+        if query and (query.data.startswith("group_info_") or query.data.startswith("cancel_delete_group_") 
+                      or query.data.startswith("cancel_leave_group_")):
+            if query.data.startswith("cancel_delete_group_") or query.data.startswith("cancel_leave_group_"):
+                group_id = int(query.data.split("_")[3])
+            else:
+                group_id = int(query.data.split("_")[2])
+        else:
+            if query:
+                await query.edit_message_text("❌ Ошибка: ID группы не найден.")
+            return
 
     user_id = update.effective_user.id
     group = get_group_by_id(conn, group_id)

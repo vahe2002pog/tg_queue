@@ -363,21 +363,28 @@ async def delete_queue_button(update: Update, context: CallbackContext) -> None:
     """Обрабатывает нажатие кнопки удаления очереди."""
     query = update.callback_query
     await query.answer()
-    conn = context.bot_data['conn']
-
-    user_id = update.effective_user.id
     queue_id = int(query.data.split("_")[2])
-    queue = await get_queue_by_id(conn, queue_id)
 
-    if not queue:
-        await query.edit_message_text("❌ Ошибка: Очередь не найдена.")
-        return
+    # Создаем кнопки подтверждения
+    keyboard = [
+        [InlineKeyboardButton("✅ Да", callback_data=f"confirm_delete_queue_{queue_id}")],
+        [InlineKeyboardButton("❌ Нет", callback_data=f"cancel_delete_queue_{queue_id}")]
+    ]
+    print(queue_id)
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-    if user_id != ADMIN_ID and queue['creator_id'] != user_id:
-        await query.edit_message_text("⚠️ Вы не можете удалить эту очередь.")
-        return
+    await query.edit_message_text("Подтвердите удаление очереди:", reply_markup=reply_markup)
 
+async def confirm_delete_queue(update: Update, context: CallbackContext) -> None:
+    """Подтверждает удаление очереди."""
+    query = update.callback_query
+    await query.answer()
+    queue_id = int(query.data.split("_")[3])
+
+    conn = context.bot_data['conn']
+    user_id = update.effective_user.id
     queue_name = get_queue_name_by_id(conn, queue_id)
+
     if not queue_name:
         await query.edit_message_text("❌ Ошибка: Не удалось получить имя очереди.")
         return
@@ -389,14 +396,51 @@ async def delete_queue_button(update: Update, context: CallbackContext) -> None:
     context.user_data['edit_message'] = False
     await show_queues(update, context)
 
+async def cancel_delete_queue(update: Update, context: CallbackContext) -> None:
+    """Отменяет удаление очереди."""
+    query = update.callback_query
+    await query.answer()
+    queue_id = None
+    # Извлекаем queue_id из query.data
+    try:
+        queue_id = int(query.data.split("_")[3])  # Извлекаем queue_id из "cancel_delete_queue_{queue_id}"
+    except (IndexError, ValueError):
+        await query.edit_message_text("❌ Ошибка: Неверный формат данных.")
+        return
+
+    conn = context.bot_data['conn']
+    queue_name = get_queue_name_by_id(conn, queue_id)
+
+    if not queue_name:
+        await query.edit_message_text("❌ Ошибка: Не удалось получить имя очереди.")
+        return
+
+    # Возвращаем пользователя к информации об очереди
+    await queue_info_button(update, context)
+
 async def leave_button(update: Update, context: CallbackContext) -> None:
     """Обрабатывает нажатие кнопки выхода из очереди."""
     query = update.callback_query
     await query.answer()
-    conn = context.bot_data['conn']
-
-    user_id = query.from_user.id
     queue_id = int(query.data.split("_")[2])
+
+    # Создаем кнопки подтверждения
+    keyboard = [
+        [InlineKeyboardButton("✅ Да", callback_data=f"confirm_leave_queue_{queue_id}")],
+        [InlineKeyboardButton("❌ Нет", callback_data=f"cancel_leave_queue_{queue_id}")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text("Подтвердите выход из очереди:", reply_markup=reply_markup)
+
+async def confirm_leave_queue(update: Update, context: CallbackContext) -> None:
+    """Подтверждает выход из очереди."""
+    query = update.callback_query
+    await query.answer()
+    queue_id = int(query.data.split("_")[3])
+
+    conn = context.bot_data['conn']
+    user_id = update.effective_user.id
     queue_name = get_queue_name_by_id(conn, queue_id)
 
     if not queue_name:
@@ -410,12 +454,48 @@ async def leave_button(update: Update, context: CallbackContext) -> None:
     context.user_data['edit_message'] = False
     await show_queues(update, context)
 
+async def cancel_leave_queue(update: Update, context: CallbackContext) -> None:
+    """Отменяет выход из очереди."""
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        queue_id = int(query.data.split("_")[3])  # Извлекаем queue_id из "cancel_leave_queue_{queue_id}"
+    except (IndexError, ValueError):
+        await query.edit_message_text("❌ Ошибка: Неверный формат данных.")
+        return
+
+    conn = context.bot_data['conn']
+    queue_name = get_queue_name_by_id(conn, queue_id)
+
+    if not queue_name:
+        await query.edit_message_text("❌ Ошибка: Не удалось получить имя очереди.")
+        return
+
+    await queue_info_button(update, context)
+
 async def skip_button(update: Update, context: CallbackContext) -> None:
     """Обрабатывает нажатие кнопки пропуска хода."""
     query = update.callback_query
     await query.answer()
-    conn = context.bot_data['conn']
     queue_id = int(query.data.split("_")[1])
+
+    # Создаем кнопки подтверждения
+    keyboard = [
+        [InlineKeyboardButton("✅ Да", callback_data=f"confirm_skip_{queue_id}")],
+        [InlineKeyboardButton("❌ Нет", callback_data=f"cancel_skip_{queue_id}")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text("Подтвердите пропуск хода:", reply_markup=reply_markup)
+
+async def confirm_skip(update: Update, context: CallbackContext) -> None:
+    """Подтверждает пропуск хода."""
+    query = update.callback_query
+    await query.answer()
+    queue_id = int(query.data.split("_")[2])
+
+    conn = context.bot_data['conn']
     user_id = update.effective_user.id
     queue_name = get_queue_name_by_id(conn, queue_id)
 
@@ -423,23 +503,9 @@ async def skip_button(update: Update, context: CallbackContext) -> None:
         await query.edit_message_text("❌ Ошибка: Не удалось получить имя очереди.")
         return
 
-    user_name = get_user_name(conn, user_id)
-    if not user_name:
-        await query.edit_message_text("❌ Не удалось найти ваше имя.")
-        return
-
-    queue = await get_queue_by_id(conn, queue_id)
-    if not queue:
-        await query.edit_message_text("❌ Такой очереди нет.")
-        return
-
     queue_users_ids = get_queue_users_ids(conn, queue_id)
     if not queue_users_ids:
         await query.edit_message_text("🔍 В очереди пока нет участников.")
-        return
-
-    if user_id not in queue_users_ids:
-        await query.edit_message_text("❌ Вы не состоите в этой очереди.")
         return
 
     current_index = queue_users_ids.index(user_id)
@@ -448,6 +514,7 @@ async def skip_button(update: Update, context: CallbackContext) -> None:
         user1_id = queue_users_ids[current_index]
         user2_id = queue_users_ids[current_index + 1]
         swap_queue_users(conn, queue_id, user1_id, user2_id)
+        user_name = get_user_name(conn, user1_id)
         user2_name = get_user_name(conn, user2_id)
 
         if user2_name:
@@ -464,6 +531,26 @@ async def skip_button(update: Update, context: CallbackContext) -> None:
     else:
         await query.edit_message_text("❌ Вы в конце очереди, нельзя пропустить.")
 
+async def cancel_skip(update: Update, context: CallbackContext) -> None:
+    """Отменяет пропуск хода."""
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        queue_id = int(query.data.split("_")[2])  # Извлекаем queue_id из "cancel_skip_{queue_id}"
+    except (IndexError, ValueError):
+        await query.edit_message_text("❌ Ошибка: Неверный формат данных.")
+        return
+
+    conn = context.bot_data['conn']
+    queue_name = get_queue_name_by_id(conn, queue_id)
+
+    if not queue_name:
+        await query.edit_message_text("❌ Ошибка: Не удалось получить имя очереди.")
+        return
+
+    await queue_info_button(update, context)
+
 async def queue_info_button(update: Update, context: CallbackContext) -> None:
     """Обрабатывает нажатие кнопки просмотра информации об очереди."""
     query = update.callback_query
@@ -472,8 +559,13 @@ async def queue_info_button(update: Update, context: CallbackContext) -> None:
 
     queue_id = None
     if queue_id is None:
-        if query and query.data.startswith("queue_info_"):
-            queue_id = int(query.data.split("_")[2])
+        if query and (query.data.startswith("queue_info_") or query.data.startswith("cancel_skip_") 
+                      or query.data.startswith("cancel_delete_queue_") or query.data.startswith("cancel_leave_queue_")):
+            if query.data.startswith("cancel_delete_queue_") or query.data.startswith("cancel_leave_queue_"):
+                queue_id = int(query.data.split("_")[3])
+                print(queue_id)
+            else:
+                queue_id = int(query.data.split("_")[2])
         else:
             if query:
                 await query.edit_message_text("❌ Ошибка: ID очереди не найден.")

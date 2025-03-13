@@ -72,7 +72,18 @@ async def broadcast_info_button(update: Update, context: CallbackContext) -> Non
     query = update.callback_query
     await query.answer()
     conn = context.bot_data['conn']
-    broadcast_id = int(query.data.split("_")[2])
+
+    broadcast_id = None
+    if broadcast_id is None:
+        if query and (query.data.startswith("broadcast_info_") or query.data.startswith("cancel_cancel_broadcast_")):
+            if query.data.startswith("cancel_cancel_broadcast_"):
+                broadcast_id = int(query.data.split("_")[3])  # Извлекаем broadcast_id из "cancel_cancel_broadcast_{broadcast_id}"
+            else:
+                broadcast_id = int(query.data.split("_")[2])  # Извлекаем broadcast_id из "broadcast_info_{broadcast_id}"
+        else:
+            if query:
+                await query.edit_message_text("❌ Ошибка: ID рассылки не найден.")
+            return
 
     # Получаем информацию о рассылке
     broadcast = get_broadcast_by_id(conn, broadcast_id)
@@ -361,15 +372,37 @@ async def cancel_broadcast_button(update: Update, context: CallbackContext) -> i
     query = update.callback_query
     await query.answer()
     broadcast_id = int(query.data.split("_")[2])
-    conn = context.bot_data['conn']
 
-    # Помечаем рассылку как удаленную
+    # Создаем кнопки подтверждения
+    keyboard = [
+        [InlineKeyboardButton("✅ Да", callback_data=f"confirm_cancel_broadcast_{broadcast_id}")],
+        [InlineKeyboardButton("❌ Нет", callback_data=f"cancel_cancel_broadcast_{broadcast_id}")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text("Подтвердите отмену рассылки:", reply_markup=reply_markup)
+
+async def confirm_cancel_broadcast(update: Update, context: CallbackContext) -> int:
+    """Подтверждает отмену рассылки."""
+    query = update.callback_query
+    await query.answer()
+    broadcast_id = int(query.data.split("_")[3])
+
+    conn = context.bot_data['conn']
     mark_broadcast_as_deleted(conn, broadcast_id)
     await query.edit_message_text("✅ Рассылка успешно удалена.")
 
-    # Сохраняем chat_id в context.user_data и устанавливаем флаг
     context.user_data['chat_id'] = query.message.chat_id
     context.user_data['edit_message'] = False
     await show_broadcasts(update, context)
 
     return ConversationHandler.END
+
+async def cancel_cancel_broadcast(update: Update, context: CallbackContext) -> int:
+    """Отменяет отмену рассылки."""
+    query = update.callback_query
+    await query.answer()
+    broadcast_id = int(query.data.split("_")[3])
+
+    await query.edit_message_text("❌ Отмена рассылки отменена.")
+    await broadcast_info_button(update, context)
