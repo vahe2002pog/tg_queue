@@ -557,6 +557,17 @@ async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
     """Обрабатывает данные Web App (геолокацию)."""
     import json
     conn = context.bot_data['conn']
+    user_id = context.user_data.get("user_id")
+    user_timezone_str = get_user_timezone(conn, user_id)
+    user_timezone = pytz.timezone(user_timezone_str)
+
+    queue_id = context.user_data.get("queue_id")
+    queue = await get_queue_by_id(conn, queue_id)
+    queue_start_time = queue["start_time"].astimezone(user_timezone)
+
+    if queue_start_time > datetime.now(user_timezone):
+        await update.message.reply_text(f"⚠️ Запись начнется *{queue_start_time.strftime('%d.%m.%Y %H:%M')}* ⏰")
+        return
     try:
         data = json.loads(update.message.web_app_data.data)
         lat = data.get("lat")
@@ -565,9 +576,6 @@ async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
         if not lat or not lon:
             await update.message.reply_text("❌ Ошибка: не удалось получить координаты.", reply_markup=ReplyKeyboardRemove())
             return
-
-        queue_id = context.user_data.get("queue_id")
-        user_id = context.user_data.get("user_id")
 
         if not queue_id:
             await update.message.reply_text("❌ Ошибка: не найдена очередь.", reply_markup=ReplyKeyboardRemove())
