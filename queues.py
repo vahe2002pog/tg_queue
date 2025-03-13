@@ -470,7 +470,7 @@ async def queue_info_button(update: Update, context: CallbackContext) -> None:
     await query.answer()  # query.answer() нужен, если мы вызываем edit_message_text
     conn = context.bot_data['conn']
 
-    queue_id = context.user_data.get('queue_id')
+    queue_id = None
     if queue_id is None:
         if query and query.data.startswith("queue_info_"):
             queue_id = int(query.data.split("_")[2])
