@@ -90,8 +90,7 @@ async def help_command(update: Update, context: CallbackContext) -> None:
         "/start - Начать\n"
         "/cancel - Отменить\n"
         "/help - Помощь\n"
-        f"По всем вопросам писать {ADMIN_USER_ID}\n"
-         "Но лучше, конечно, не писать\n"
+        f"По всем вопросам пишите — {ADMIN_USER_ID}\n"
     )
     await update.effective_message.reply_text(help_text, parse_mode=None)
 
