@@ -3,3 +3,4 @@ queue_bot.db
 __pycache__
 .vscode/launch.json
 app.py
+key.py

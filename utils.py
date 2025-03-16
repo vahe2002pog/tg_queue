@@ -6,8 +6,8 @@ from datetime import datetime
 from geopy.distance import geodesic
 from db import get_queue_by_id, get_queue_name_by_id, add_user_to_queue, get_queue_users_names, get_queue_users_ids, get_user_name, get_user_timezone
 from config import GET_LOCATION_URL
-from varibles import MAX_DISTANCE
-
+from varibles import MAX_DISTANCE, JOIN_GROUP_PAYLOAD, JOIN_QUEUE_PAYLOAD
+from crypto import encrypt_data
 
 logger = logging.getLogger(__name__)
 
@@ -78,18 +78,21 @@ async def check_distance_and_join(update, context, queue_id, user_id, lat, lon):
     else:
         await update.message.reply_text("❌ Слишком далеко для записи в очередь.", reply_markup=ReplyKeyboardRemove())
 
-async def create_join_queue_button(context, queue_id):
-    """Создает кнопку 'Присоединиться к очереди'."""
-    deeplink = f"https://t.me/{context.bot.username}?start=join_queue_{queue_id}"
-    return InlineKeyboardMarkup([[InlineKeyboardButton("📌 Присоединиться к очереди", url=deeplink)]])
+async def create_join_queue_button(context, queue_id, creator_id):
+    """Создает кнопку 'Присоединиться к очереди' с зашифрованным ID."""
+    encrypted_id = encrypt_data(queue_id, creator_id)
+    deeplink = f"https://t.me/{context.bot.username}?start={JOIN_QUEUE_PAYLOAD}{encrypted_id}"
+    return InlineKeyboardMarkup([[InlineKeyboardButton("➕ Присоединиться к очереди", url=deeplink)]])
+
+async def create_join_group_button(context, group_id, creator_id):
+    encrypted_id = encrypt_data(group_id, creator_id)
+    deeplink = f"https://t.me/{context.bot.username}?start={JOIN_GROUP_PAYLOAD}{encrypted_id}"
+    return InlineKeyboardMarkup([[InlineKeyboardButton("➕ Присоединиться к группе", url=deeplink)]])
 
 async def send_queue_created_message(update, context, queue_name, start_time, reply_markup):
     """Отправляет сообщение об успешном создании очереди."""
     # Получаем часовой пояс пользователя
     user_timezone_str = get_user_timezone(conn = context.bot_data['conn'], user_id = update.effective_user.id)
-
-    # Конвертируем время из UTC в часовой пояс пользователя
-    # start_time_localized = convert_time_to_user_timezone(start_time, user_timezone_str)
 
     # Формируем сообщение с локальным временем пользователя
     message = await update.effective_message.reply_text(
@@ -104,7 +107,7 @@ async def send_queue_created_message(update, context, queue_name, start_time, re
 
 def build_queues_menu(queues_list):
     """Создает меню со списком очередей."""
-    buttons = [InlineKeyboardButton(queue['queue_name'], callback_data=f"join_queue_{queue['queue_id']}") for queue in queues_list]
+    buttons = [InlineKeyboardButton(queue['queue_name'], callback_data=f"{JOIN_QUEUE_PAYLOAD}{queue['queue_id']}") for queue in queues_list]
     return InlineKeyboardMarkup(build_menu(buttons))
 
 def build_skip_turn_menu(user_queues):
@@ -154,7 +157,7 @@ def build_web_app_location_button():
 
 def build_group_menu(groups: list[dict]) -> InlineKeyboardMarkup:
     """Создает меню со списком групп."""
-    buttons = [InlineKeyboardButton(group['group_name'], callback_data=f"join_group_{group['group_id']}") for group in groups]
+    buttons = [InlineKeyboardButton(group['group_name'], callback_data=f"{JOIN_GROUP_PAYLOAD}{group['group_id']}") for group in groups]
     return InlineKeyboardMarkup(build_menu(buttons))
 
 def build_select_group_menu(groups: list[dict], with_no_group: bool = True) -> InlineKeyboardMarkup:

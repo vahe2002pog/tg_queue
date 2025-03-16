@@ -118,8 +118,6 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
-
-    # Добавляем обработчик в приложение
     application.add_handler(broadcast_handler)
 
     application.add_handler(CommandHandler("start", handle_deeplink, filters.Regex(JOIN_QUEUE_PAYLOAD)))

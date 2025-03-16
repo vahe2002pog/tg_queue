@@ -1,4 +1,3 @@
-# queues.py
 import logging
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions, ReplyKeyboardRemove
 from telegram.ext import CallbackContext, ConversationHandler
@@ -9,12 +8,13 @@ from varibles import *
 from db import *
 from utils import *
 from main_menu import *
+from crypto import decrypt_data
 logger = logging.getLogger(__name__)
 
 async def create_queue(update: Update, context: CallbackContext) -> int:
     """Начинает процесс создания очереди."""
     await update.effective_message.reply_text(
-        "📌 *Создание очереди*\n\n"
+        "✍ *Создание очереди*\n\n"
         "🔹 Введите *название очереди*.\n",
     )
     return QUEUE_NAME
@@ -233,7 +233,7 @@ async def send_group_notification(update: Update, context: CallbackContext) -> N
         logger.info(f"Нет пользователей в группе {group_id} для уведомлений")
         return
 
-    reply_markup = await create_join_queue_button(context, queue_id)
+    reply_markup = await create_join_queue_button(context, queue_id, queue_creator_id)
 
     # Получаем start_time из БД (оно в UTC)
     queue = await get_queue_by_id(conn, queue_id)
@@ -244,7 +244,7 @@ async def send_group_notification(update: Update, context: CallbackContext) -> N
     start_time = queue['start_time']
 
     for user_id in users:
-        # if user_id != queue_creator_id:
+        if user_id != queue_creator_id:
             try:
                 # 1. Получаем часовой пояс ПОЛУЧАТЕЛЯ
                 user_timezone_str = get_user_timezone(conn, user_id)
@@ -288,15 +288,16 @@ async def finish_queue_creation(update:Update, context:CallbackContext):
     date_str = context.user_data['queue_date']
     time_str = context.user_data['queue_time']
     start_time = datetime.strptime(f"{date_str} {time_str}", "%d.%m.%y %H:%M")
+    user_id = update.effective_user.id
 
     #Создаем кнопку
-    reply_markup = await create_join_queue_button(context, queue_id)
+    reply_markup = await create_join_queue_button(context, queue_id, user_id)
     #Формируем сообщение
     queue_message = await send_queue_created_message(update, context, queue_name, start_time, reply_markup)
     context.user_data['queue_message_id'] = queue_message.message_id #Сохраняем ID сообщения
 
     #Удаляем через 5 часов
-    user_timezone_str = get_user_timezone(conn, user_id = update.effective_user.id)
+    user_timezone_str = get_user_timezone(conn, user_id)
     user_timezone = pytz.timezone(user_timezone_str)
     start_time_localized = user_timezone.localize(start_time)
     start_time_utc = start_time_localized.astimezone(pytz.UTC)
@@ -321,9 +322,13 @@ async def handle_deeplink(update: Update, context: CallbackContext) -> None:
             return
 
         payload = message_text.split()[1]
-        if payload.startswith("join_queue_"):
+        if payload.startswith(JOIN_QUEUE_PAYLOAD):
             try:
-                queue_id = int(payload[11:])
+                encrypted_id = payload[11:]
+                queue_id, creator_id = decrypt_data(encrypted_id)
+                if not queue_id or not creator_id:
+                    await update.message.reply_text("❌ Неверный формат ID очереди.")
+                    return
             except ValueError:
                 await update.message.reply_text("❌ Неверный формат ID очереди.")
                 return
@@ -334,16 +339,18 @@ async def handle_deeplink(update: Update, context: CallbackContext) -> None:
                 await update.message.reply_text("❌ Очередь не найдена.")
                 return
 
+            if queue['creator_id'] != creator_id:
+                await update.message.reply_text("❌ Ошибка: Неверный создатель очереди.")
+                return
+
             if not get_user_data(conn, user_id):
                 await update.message.reply_text(
-                    "📌 Для начала введите ваше *имя* с помощью команды /start.")
+                    "✍ Для начала введите ваше *имя* с помощью команды /start.")
                 return
 
             context.user_data['queue_id'] = queue_id
             context.user_data['user_id'] = user_id
             await ask_location(update, context)
-    elif update.callback_query:
-        pass
 
 async def delete_queue_job(context: CallbackContext) -> None:
     """Автоматически удаляет очередь."""
@@ -554,7 +561,7 @@ async def cancel_skip(update: Update, context: CallbackContext) -> None:
 async def queue_info_button(update: Update, context: CallbackContext) -> None:
     """Обрабатывает нажатие кнопки просмотра информации об очереди."""
     query = update.callback_query
-    await query.answer()  # query.answer() нужен, если мы вызываем edit_message_text
+    await query.answer()
     conn = context.bot_data['conn']
 
     queue_id = None
@@ -588,7 +595,7 @@ async def queue_info_button(update: Update, context: CallbackContext) -> None:
             InlineKeyboardButton("🚪 Выйти из очереди", callback_data=f"leave_queue_{queue_id}")
         ])
     else:
-        keyboard.append([InlineKeyboardButton("➕ Присоединиться", callback_data=f"join_queue_{queue_id}")])
+        keyboard.append([InlineKeyboardButton("➕ Присоединиться", callback_data=f"{JOIN_QUEUE_PAYLOAD}{queue_id}")])
 
     if queue['creator_id'] == user_id or user_id == ADMIN_ID:
         # Добавляем кнопку удаления в отдельную строку

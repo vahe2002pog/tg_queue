@@ -3,17 +3,17 @@ import logging
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackContext, ConversationHandler
 from config import ADMIN_ID
-from varibles import GROUP_NAME
+from varibles import GROUP_NAME, JOIN_GROUP_PAYLOAD
 from db import *
 from utils import *
+from crypto import decrypt_data
 logger = logging.getLogger(__name__)
 
 async def create_group(update: Update, context: CallbackContext) -> int:
     """Начинает процесс создания группы."""
-    await update.effective_message.reply_text("📌 Введите название группы:")
+    await update.effective_message.reply_text("✍ Введите название группы:")
     return GROUP_NAME
 
-# groups.py (измененный create_group_name)
 async def create_group_name(update: Update, context: CallbackContext) -> int:
     """Сохраняет название группы и завершает процесс."""
     group_name = update.message.text.strip()
@@ -26,16 +26,12 @@ async def create_group_name(update: Update, context: CallbackContext) -> int:
 
     group_id = insert_group(conn, group_name, user_id)  # Сохраняем группу
     if group_id:
-        deeplink = f"https://t.me/{context.bot.username}?start=join_group_{group_id}"
-        keyboard = [[InlineKeyboardButton("📌 Присоединиться к группе", url=deeplink)]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
+        reply_markup = await create_join_group_button(context, group_id, user_id)
 
         await update.message.reply_text(
             f"✅ Группа *{group_name}* создана!\n"
             f"➡ Нажмите кнопку, чтобы присоединиться.",
             reply_markup=reply_markup,
-
         )
     else:
         await update.message.reply_text("❌ Ошибка при создании группы.")
@@ -44,65 +40,48 @@ async def create_group_name(update: Update, context: CallbackContext) -> int:
 async def handle_group_deeplink(update: Update, context: CallbackContext) -> None:
     """Обрабатывает deeplink для присоединения к группе."""
     conn = context.bot_data['conn']
-
     if update.message:
-      message_text = update.message.text
-      if not message_text.startswith("/start") or len(message_text.split()) <= 1:
-          return  # Если это не deeplink, игнорируем
+        message_text = update.message.text
+        logger.info(f"Получено сообщение: {message_text}")
 
-      payload = message_text.split()[1]
-      if payload.startswith("join_group_"):
-          try:
-              group_id = int(payload[11:])  # Извлекаем group_id
-          except ValueError:
-              await update.message.reply_text("❌ Неверный формат ID группы.")
-              return
+        if not message_text.startswith("/start") or len(message_text.split()) <= 1:
+            return
 
-          user_id = update.effective_user.id
+        payload = message_text.split()[1]
+        if payload.startswith(JOIN_GROUP_PAYLOAD):
+            try:
+                encrypted_id = payload[11:]
+                group_id, creator_id = decrypt_data(encrypted_id)
+                if not group_id or not creator_id:
+                    await update.message.reply_text("❌ Неверный формат ID группы.")
+                    return
+            except ValueError:
+                await update.message.reply_text("❌ Неверный формат ID группы.")
+                return
 
-          group_name = get_group_name_by_id(conn, group_id)
-          if not group_name:
-              await update.message.reply_text("❌ Ошибка: Группа не найдена.")
-              return
+            user_id = update.effective_user.id
 
-          if not get_user_data(conn, user_id):
+            # Получаем информацию о группе
+            group = get_group_by_id(conn, group_id)
+            if not group:
+                await update.message.reply_text("❌ Ошибка: Группа не найдена.")
+                return
+
+            if group['creator_id'] != creator_id:
+                await update.message.reply_text("❌ Ошибка: Неверный создатель группы.")
+                return
+
+            if not get_user_data(conn, user_id):
                 await update.message.reply_text(
-                    "📌 Для начала введите ваше *имя* с помощью команды /start.",
-
+                    "✍ Для начала введите ваше *имя* с помощью команды /start.",
                 )
                 return
-          add_user_to_group(conn, group_id, user_id)
-          await update.message.reply_text(f"✅ Вы присоединились к группе '{group_name}'")
+
+            # Добавляем пользователя в группу
+            add_user_to_group(conn, group_id, user_id)
+            await update.message.reply_text(f"✅ Вы присоединились к группе '{group['group_name']}'")
     elif update.callback_query:
-      pass
-
-async def join_group(update: Update, context: CallbackContext) -> None:
-    """Обрабатывает нажатие на кнопку 'Присоединиться к группе'."""
-    query = update.callback_query
-    await query.answer()
-    conn = context.bot_data['conn']
-    data_parts = query.data.split("_")
-
-    #Валидация данных
-    if len(data_parts) < 3:
-        await query.message.reply_text("❌ Ошибка: неверный формат данных")
-        return
-    try:
-        group_id = int(data_parts[2])
-    except ValueError:
-         await query.message.reply_text("❌ Ошибка: неверный формат ID группы")
-         return
-
-    user_id = update.effective_user.id
-
-    group_name = get_group_name_by_id(conn, group_id)
-    if not group_name:
-        await query.message.reply_text("❌ Ошибка: Группа не найдена.")
-        return
-
-    add_user_to_group(conn, group_id, user_id)
-    await query.message.reply_text(f"✅ Вы присоединились к группе '{group_name}'")
-
+        pass
 
 async def show_groups(update: Update, context: CallbackContext) -> None:
     """Показывает список групп."""
@@ -143,6 +122,33 @@ async def show_groups(update: Update, context: CallbackContext) -> None:
     else:
         # Иначе отправляем новое сообщение
         await context.bot.send_message(chat_id, "📋 Выберите группу:", reply_markup=reply_markup)
+
+async def join_group(update: Update, context: CallbackContext) -> None:
+    """Обрабатывает нажатие на кнопку 'Присоединиться к группе'."""
+    query = update.callback_query
+    await query.answer()
+    conn = context.bot_data['conn']
+    data_parts = query.data.split("_")
+
+    #Валидация данных
+    if len(data_parts) < 3:
+        await query.message.reply_text("❌ Ошибка: неверный формат данных")
+        return
+    try:
+        group_id = int(data_parts[2])
+    except ValueError:
+         await query.message.reply_text("❌ Ошибка: неверный формат ID группы")
+         return
+
+    user_id = update.effective_user.id
+
+    group_name = get_group_name_by_id(conn, group_id)
+    if not group_name:
+        await query.message.reply_text("❌ Ошибка: Группа не найдена.")
+        return
+
+    add_user_to_group(conn, group_id, user_id)
+    await query.message.reply_text(f"✅ Вы присоединились к группе '{group_name}'")
 
 async def leave_group_button(update: Update, context: CallbackContext) -> None:
     """Обрабатывает выход пользователя из группы."""
@@ -283,7 +289,7 @@ async def group_info_button(update: Update, context: CallbackContext) -> None:
     if is_user_in_group(conn, group_id, user_id):
         buttons.append(InlineKeyboardButton("🚪 Покинуть группу", callback_data=f"leave_group_{group_id}"))
     else:
-        buttons.append(InlineKeyboardButton("➕ Присоединиться", callback_data=f"join_group_{group_id}"))
+        buttons.append(InlineKeyboardButton("➕ Присоединиться", callback_data=f"{JOIN_GROUP_PAYLOAD}{group_id}"))
 
     if group['creator_id'] == user_id or user_id == ADMIN_ID:
         buttons.append(InlineKeyboardButton("❌ Удалить группу", callback_data=f"delete_group_{group_id}"))
