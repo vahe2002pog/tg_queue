@@ -564,3 +564,9 @@ def get_broadcast_by_id(conn, broadcast_id: int) -> dict | None:
     except sqlite3.Error as e:
         logger.error(f"Ошибка при получении рассылки из базы данных: {e}")
         return None
+
+def update_user_timezone(conn, user_id: int, timezone: str):
+    """Обновляет часовой пояс пользователя."""
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET time_zone = ? WHERE user_id = ?", (timezone, user_id))
+    conn.commit()

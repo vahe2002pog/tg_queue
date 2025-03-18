@@ -6,8 +6,9 @@ from datetime import datetime
 from geopy.distance import geodesic
 from db import get_queue_by_id, get_queue_name_by_id, add_user_to_queue, get_queue_users_names, get_queue_users_ids, get_user_name, get_user_timezone
 from config import GET_LOCATION_URL
-from varibles import MAX_DISTANCE, JOIN_GROUP_PAYLOAD, JOIN_QUEUE_PAYLOAD
+from varibles import MAX_DISTANCE, JOIN_GROUP_PAYLOAD, JOIN_QUEUE_PAYLOAD, RUSSIAN_TIMEZONES
 from crypto import encrypt_data
+from geopy.geocoders import Nominatim
 
 logger = logging.getLogger(__name__)
 
@@ -204,3 +205,21 @@ def build_main_menu():
 def error_handler(update: object, context: CallbackContext) -> None:
     """Логирует ошибки, вызванные обновлениями."""
     logger.error(msg="Exception while handling an update:", exc_info=context.error)
+
+def get_all_timezones():
+    """Возвращает список всех доступных часовых поясов."""
+    return pytz.all_timezones
+
+def get_timezone_by_location(lat, lon):
+    """Определяет часовой пояс по координатам."""
+    geolocator = Nominatim(user_agent="timezone_app")
+    location = geolocator.reverse((lat, lon), exactly_one=True)
+    if location and location.raw.get('timezone'):
+        return location.raw['timezone']
+    return None
+
+def build_russian_timezone_menu():
+    """Создает меню выбора часового пояса для России."""
+    buttons = [InlineKeyboardButton(tz_name, callback_data=f"select_tz_{tz_code}") for tz_name, tz_code in RUSSIAN_TIMEZONES.items()]
+    buttons.append(InlineKeyboardButton("📍 Определить по геолокации", callback_data="select_tz_location"))
+    return InlineKeyboardMarkup(build_menu(buttons, n_cols=2))

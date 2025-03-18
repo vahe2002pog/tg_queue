@@ -1,7 +1,7 @@
+import json
 import logging
 from telegram import Update, BotCommand, ReplyKeyboardRemove
 from telegram.ext import CallbackContext, ConversationHandler
-
 from config import ADMIN_USER_ID
 from varibles import *
 from db import get_user_data, set_user_name, update_user_name, update_user_state
@@ -42,7 +42,7 @@ async def start(update: Update, context: CallbackContext) -> int:
             return ConversationHandler.END
 
         context.user_data['state'] = WAITING_FOR_NAME
-        context.user_data['time_zone'] = GMT_PLUS_5 #Временное решение
+        # context.user_data['time_zone'] = GMT_PLUS_5 #Временное решение
         return WAITING_FOR_NAME
 
 async def set_name(update: Update, context: CallbackContext) -> int:
@@ -50,13 +50,77 @@ async def set_name(update: Update, context: CallbackContext) -> int:
     user_id = update.effective_user.id
     user_name = update.message.text
     conn = context.bot_data['conn']
-    time_zone = GMT_PLUS_5
 
-    set_user_name(conn, user_id, user_name, time_zone)
-    await update.message.reply_text(f"✅ Ваше имя *{user_name}* сохранено.")
-    reply_markup = build_main_menu()
-    await update.message.reply_text("Главное меню", reply_markup=reply_markup)
-    return ConversationHandler.END
+    # Сохраняем имя пользователя
+    set_user_name(conn, user_id, user_name, time_zone=None)  # Пока не указываем часовой пояс
+
+    # Предлагаем выбрать часовой пояс
+    reply_markup = build_russian_timezone_menu()
+    await update.message.reply_text("🕒 Пожалуйста, выберите ваш часовой пояс:", reply_markup=reply_markup)
+
+    return SELECT_TIMEZONE
+
+async def select_timezone(update: Update, context: CallbackContext) -> int:
+    """Обработчик выбора часового пояса."""
+    query = update.callback_query
+    await query.answer()
+
+    if query.data.startswith("select_tz_"):
+        timezone_code = query.data.split("_", 2)[2]
+        conn = context.bot_data['conn']
+        user_id = update.effective_user.id
+
+        # Обновляем часовой пояс пользователя в базе данных
+        update_user_timezone(conn, user_id, timezone_code)
+
+        # Находим русское название для выбранного часового пояса
+        timezone_name = next((name for name, code in RUSSIAN_TIMEZONES.items() if code == timezone_code), timezone_code)
+
+        await query.edit_message_text(f"✅ Часовой пояс установлен: {timezone_name}")
+        reply_markup = build_main_menu()
+        await query.message.reply_text("Главное меню", reply_markup=reply_markup)
+        return ConversationHandler.END
+
+    elif query.data == "select_tz_location":
+        # Запрашиваем геолокацию через Web App
+        reply_markup = build_web_app_location_button()
+        await query.edit_message_text("📍 Пожалуйста, отправьте вашу геолокацию для определения часового пояса:", reply_markup=reply_markup)
+        return SELECT_TIMEZONE_BY_LOCATION
+
+async def select_timezone_by_location(update: Update, context: CallbackContext) -> int:
+    """Обработчик выбора часового пояса по геолокации."""
+    try:
+        data = json.loads(update.message.web_app_data.data)
+        lat = data.get("lat")
+        lon = data.get("lon")
+
+        if not lat or not lon:
+            await update.message.reply_text("❌ Ошибка: не удалось получить координаты.", reply_markup=ReplyKeyboardRemove())
+            return SELECT_TIMEZONE
+
+        timezone = get_timezone_by_location(lat, lon)
+        if not timezone:
+            await update.message.reply_text("❌ Не удалось определить часовой пояс по вашей геолокации.", reply_markup=ReplyKeyboardRemove())
+            return SELECT_TIMEZONE
+
+        conn = context.bot_data['conn']
+        user_id = update.effective_user.id
+
+        # Обновляем часовой пояс пользователя в базе данных
+        update_user_timezone(conn, user_id, timezone)
+
+        # Находим русское название для определенного часового пояса
+        timezone_name = next((name for name, code in RUSSIAN_TIMEZONES.items() if code == timezone), timezone)
+
+        await update.message.reply_text(f"✅ Часовой пояс установлен: {timezone_name}", reply_markup=ReplyKeyboardRemove())
+        reply_markup = build_main_menu()
+        await update.message.reply_text("Главное меню", reply_markup=reply_markup)
+        return ConversationHandler.END
+
+    except Exception as e:
+        logger.error(f"Ошибка в обработке Web App данных: {e}")
+        await update.message.reply_text("❌ Произошла ошибка.", reply_markup=ReplyKeyboardRemove())
+        return SELECT_TIMEZONE
 
 async def change_name_start(update: Update, context: CallbackContext) -> None:
     """Обработчик начала смены имени."""

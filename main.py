@@ -123,16 +123,22 @@ def main():
     application.add_handler(CommandHandler("start", handle_deeplink, filters.Regex(JOIN_QUEUE_PAYLOAD)))
     application.add_handler(CommandHandler("start", handle_group_deeplink, filters.Regex(JOIN_GROUP_PAYLOAD)))
 
+    # Основной ConversationHandler для старта
     start_conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
             WAITING_FOR_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_name)],
+            SELECT_TIMEZONE: [CallbackQueryHandler(select_timezone)],
+            SELECT_TIMEZONE_BY_LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_timezone_by_location)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-	 # Добавляем ConversationHandler в приложение
+    # Добавляем ConversationHandler в приложение
     application.add_handler(start_conv_handler)
+
+
+
     application.add_handler(CommandHandler("cancel", cancel))
     application.add_handler(CommandHandler("help", help_command))
 
