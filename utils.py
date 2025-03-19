@@ -1,6 +1,6 @@
 import pytz
 import logging
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo, ReplyKeyboardRemove, LinkPreviewOptions
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo, ReplyKeyboardRemove, LinkPreviewOptions, Update
 from telegram.ext import CallbackContext
 from datetime import datetime
 from geopy.distance import geodesic
@@ -8,7 +8,7 @@ from db import get_queue_by_id, get_queue_name_by_id, add_user_to_queue, get_que
 from config import GET_LOCATION_URL
 from varibles import MAX_DISTANCE, JOIN_GROUP_PAYLOAD, JOIN_QUEUE_PAYLOAD, RUSSIAN_TIMEZONES
 from crypto import encrypt_data
-from geopy.geocoders import Nominatim
+from timezonefinder import TimezoneFinder
 
 logger = logging.getLogger(__name__)
 
@@ -151,9 +151,10 @@ async def generate_queue_info_message(conn, queue_id: int, user_timezone_str: st
 
     return f"📋 Список участников очереди {queue_name} (время начала: {start_time_str}):\n{users_text}"
 
-def build_web_app_location_button():
+def build_web_app_location_button(rec_source):
     """Создает кнопку для отправки геолокации через Web App."""
-    keyboard = [[KeyboardButton("📍 Отправить геолокацию", web_app=WebAppInfo(url=GET_LOCATION_URL))]]
+    url = f"{GET_LOCATION_URL}?rec_source={rec_source}"
+    keyboard = [[KeyboardButton("📍 Отправить геолокацию", web_app=WebAppInfo(url=url))]]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
 def build_group_menu(groups: list[dict]) -> InlineKeyboardMarkup:
@@ -198,6 +199,7 @@ def build_main_menu():
         InlineKeyboardButton("👥 Группы", callback_data="show_groups"),
         InlineKeyboardButton("📨 Рассылка", callback_data="show_broadcasts"),
         InlineKeyboardButton("🔄 Сменить имя", callback_data="change_name"),
+        InlineKeyboardButton("🕒 Часовой пояс", callback_data="select_timezone"),
         InlineKeyboardButton("❓ Помощь", callback_data="help")
     ]
     return InlineKeyboardMarkup(build_menu(buttons, n_cols=2))
@@ -212,14 +214,11 @@ def get_all_timezones():
 
 def get_timezone_by_location(lat, lon):
     """Определяет часовой пояс по координатам."""
-    geolocator = Nominatim(user_agent="timezone_app")
-    location = geolocator.reverse((lat, lon), exactly_one=True)
-    if location and location.raw.get('timezone'):
-        return location.raw['timezone']
-    return None
+    tf = TimezoneFinder()
+    return tf.timezone_at(lng=lon, lat=lat)
 
 def build_russian_timezone_menu():
     """Создает меню выбора часового пояса для России."""
     buttons = [InlineKeyboardButton(tz_name, callback_data=f"select_tz_{tz_code}") for tz_name, tz_code in RUSSIAN_TIMEZONES.items()]
-    buttons.append(InlineKeyboardButton("📍 Определить по геолокации", callback_data="select_tz_location"))
+    buttons.append(InlineKeyboardButton("📍 Определить по геолокации", callback_data="select_location_tz"))
     return InlineKeyboardMarkup(build_menu(buttons, n_cols=2))

@@ -3,3 +3,4 @@ geopy
 python-telegram-bot[job-queue]
 pytz
 pycryptodome
+timezonefinder

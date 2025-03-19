@@ -10,7 +10,6 @@ from telegram.ext import (
      CommandHandler,  CallbackQueryHandler, MessageHandler,
     filters, ConversationHandler, JobQueue
 )
-
 from config import *
 from varibles import *
 from db import create_connection, create_tables
@@ -128,8 +127,6 @@ def main():
         entry_points=[CommandHandler("start", start)],
         states={
             WAITING_FOR_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_name)],
-            SELECT_TIMEZONE: [CallbackQueryHandler(select_timezone)],
-            SELECT_TIMEZONE_BY_LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_timezone_by_location)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
@@ -137,6 +134,18 @@ def main():
     # Добавляем ConversationHandler в приложение
     application.add_handler(start_conv_handler)
 
+    # ConversationHandler для выбора часового пояса
+    timezone_conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(select_timezone_start, pattern="^select_timezone$")],
+        states={
+            SELECT_TIMEZONE: [CallbackQueryHandler(select_timezone)],
+            # SELECT_TIMEZONE_BY_LOCATION: [CallbackQueryHandler(select_timezone_by_location, pattern="^select_location_tz$")],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    # Добавляем ConversationHandler в приложение
+    application.add_handler(timezone_conv_handler)
 
 
     application.add_handler(CommandHandler("cancel", cancel))
@@ -147,7 +156,7 @@ def main():
 
     
     # Обработчики нажатий кнопок
-    application.add_handler(CallbackQueryHandler(main_menu_buttons, pattern="^(show_queues|show_groups|show_broadcasts|change_name|help|main_menu)$"))
+    application.add_handler(CallbackQueryHandler(main_menu_buttons, pattern="^(show_queues|show_groups|show_broadcasts|change_name|select_timezone|help|main_menu)$"))
     application.add_handler(CallbackQueryHandler(queue_info_button, pattern="^queue_info_"))
     application.add_handler(CallbackQueryHandler(group_info_button, pattern="^group_info_"))
     application.add_handler(CallbackQueryHandler(broadcast_info_button, pattern="^broadcast_info_"))

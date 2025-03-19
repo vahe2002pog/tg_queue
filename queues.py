@@ -1,8 +1,9 @@
+import json
+import pytz
 import logging
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions, ReplyKeyboardRemove
 from telegram.ext import CallbackContext, ConversationHandler
 from datetime import datetime, timedelta
-import pytz
 from config import MF_COORDINATES, ADMIN_ID
 from varibles import *
 from db import *
@@ -652,9 +653,8 @@ async def show_queues(update: Update, context: CallbackContext) -> None:
         # Иначе отправляем новое сообщение
         await context.bot.send_message(chat_id, "📋 Выберите очередь:", reply_markup=reply_markup)
 
-async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
+async def get_web_app_loc(update: Update, context: CallbackContext) -> None:
     """Обрабатывает данные Web App (геолокацию)."""
-    import json
     conn = context.bot_data['conn']
     user_id = context.user_data.get("user_id")
     user_timezone_str = get_user_timezone(conn, user_id)
@@ -739,7 +739,7 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
         return
 
     context.user_data["expecting_location_for"] = queue_id
-    reply_markup = build_web_app_location_button()
+    reply_markup = build_web_app_location_button(rec_source="get_location")
 
     queue_name = queue['queue_name'] if update.callback_query else get_queue_name_by_id(conn, queue_id)
     if not queue_name:

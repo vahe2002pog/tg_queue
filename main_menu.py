@@ -21,12 +21,10 @@ async def start(update: Update, context: CallbackContext) -> int:
     result = get_user_data(conn, user_id)
     if result:
         reply_markup = build_main_menu()
-        # Проверяем, нужно ли редактировать сообщение
         if context.user_data.get('edit_message') and query:
             await query.edit_message_text("Главное меню", reply_markup=reply_markup)
             context.user_data['edit_message'] = False
         else:
-            # Если не редактируем, отправляем новое сообщение
             if update.message:
                 await update.message.reply_text("Главное меню", reply_markup=reply_markup)
             elif query:
@@ -42,8 +40,9 @@ async def start(update: Update, context: CallbackContext) -> int:
             return ConversationHandler.END
 
         context.user_data['state'] = WAITING_FOR_NAME
-        # context.user_data['time_zone'] = GMT_PLUS_5 #Временное решение
         return WAITING_FOR_NAME
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 async def set_name(update: Update, context: CallbackContext) -> int:
     """Обработчик ввода имени пользователя."""
@@ -52,18 +51,28 @@ async def set_name(update: Update, context: CallbackContext) -> int:
     conn = context.bot_data['conn']
 
     # Сохраняем имя пользователя
-    set_user_name(conn, user_id, user_name, time_zone=None)  # Пока не указываем часовой пояс
+    set_user_name(conn, user_id, user_name, time_zone=None)
 
-    # Предлагаем выбрать часовой пояс
+    # Отправляем кнопку "Выбрать часовой пояс"
+    keyboard = [[InlineKeyboardButton("Выбрать часовой пояс", callback_data="select_timezone")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(f"Спасибо, {user_name}! Теперь выберите ваш часовой пояс:", reply_markup=reply_markup)
+
+    return ConversationHandler.END
+
+async def select_timezone_start(update: Update, context: CallbackContext) -> int:
+    """Запускает процесс выбора часового пояса после нажатия на кнопку."""
+    query = update.callback_query
     reply_markup = build_russian_timezone_menu()
-    await update.message.reply_text("🕒 Пожалуйста, выберите ваш часовой пояс:", reply_markup=reply_markup)
+
+    await query.message.reply_text("🕒 Пожалуйста, выберите ваш часовой пояс:", reply_markup=reply_markup)
+    await query.answer()
 
     return SELECT_TIMEZONE
 
 async def select_timezone(update: Update, context: CallbackContext) -> int:
     """Обработчик выбора часового пояса."""
     query = update.callback_query
-    await query.answer()
 
     if query.data.startswith("select_tz_"):
         timezone_code = query.data.split("_", 2)[2]
@@ -81,11 +90,12 @@ async def select_timezone(update: Update, context: CallbackContext) -> int:
         await query.message.reply_text("Главное меню", reply_markup=reply_markup)
         return ConversationHandler.END
 
-    elif query.data == "select_tz_location":
+    elif query.data == "select_location_tz":
         # Запрашиваем геолокацию через Web App
-        reply_markup = build_web_app_location_button()
-        await query.edit_message_text("📍 Пожалуйста, отправьте вашу геолокацию для определения часового пояса:", reply_markup=reply_markup)
-        return SELECT_TIMEZONE_BY_LOCATION
+        reply_markup = build_web_app_location_button(rec_source="get_tz")
+        await query.edit_message_text("Определение часового пояса по геолокации",)
+        await query.message.reply_text("📍 Пожалуйста, отправьте вашу геолокацию для определения часового пояса:", reply_markup=reply_markup)
+        return ConversationHandler.END
 
 async def select_timezone_by_location(update: Update, context: CallbackContext) -> int:
     """Обработчик выбора часового пояса по геолокации."""
@@ -96,12 +106,11 @@ async def select_timezone_by_location(update: Update, context: CallbackContext) 
 
         if not lat or not lon:
             await update.message.reply_text("❌ Ошибка: не удалось получить координаты.", reply_markup=ReplyKeyboardRemove())
-            return SELECT_TIMEZONE
-
+            return
         timezone = get_timezone_by_location(lat, lon)
         if not timezone:
             await update.message.reply_text("❌ Не удалось определить часовой пояс по вашей геолокации.", reply_markup=ReplyKeyboardRemove())
-            return SELECT_TIMEZONE
+            return
 
         conn = context.bot_data['conn']
         user_id = update.effective_user.id
@@ -120,7 +129,7 @@ async def select_timezone_by_location(update: Update, context: CallbackContext) 
     except Exception as e:
         logger.error(f"Ошибка в обработке Web App данных: {e}")
         await update.message.reply_text("❌ Произошла ошибка.", reply_markup=ReplyKeyboardRemove())
-        return SELECT_TIMEZONE
+        return
 
 async def change_name_start(update: Update, context: CallbackContext) -> None:
     """Обработчик начала смены имени."""
@@ -203,8 +212,23 @@ async def main_menu_buttons(update: Update, context: CallbackContext) -> None:
         await show_broadcasts(update, context)
     elif query.data == "change_name":
         await change_name_start(update, context)
+    elif query.data == "select_timezone":
+        await select_timezone(update, context)
     elif query.data == "help":
         await help_command(update, context)
     elif query.data == "main_menu":
         context.user_data['edit_message'] = True
         await start(update, context)
+
+async def handle_web_app_data(update: Update, context: CallbackContext) -> None:
+    """Обрабатывает данные Web App (геолокацию)."""
+    try:
+        data = json.loads(update.message.web_app_data.data)
+        rec_source = data.get("rec_source")
+        if rec_source == "get_location":
+            await get_web_app_loc(update, context)
+        else:
+            await select_timezone_by_location(update, context)
+    except Exception as e:
+        logger.error(f"Ошибка в обработке Web App данных: {e}")
+        await update.message.reply_text("❌ Произошла ошибка.", reply_markup=ReplyKeyboardRemove())
