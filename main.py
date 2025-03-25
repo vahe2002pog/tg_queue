@@ -170,8 +170,9 @@ def main():
     application.add_handler(CallbackQueryHandler(join_group, pattern="^join_group_"))
     application.add_handler(CallbackQueryHandler(back_to_main_menu, pattern="^back_to_main_menu$"))
 
-
     # Обработчики для подтверждения действий
+    application.add_handler(CallbackQueryHandler(generate_queue_invite_button, pattern="^invite_queue_"))
+    application.add_handler(CallbackQueryHandler(generate_group_invite_button, pattern="^invite_group_"))
     application.add_handler(CallbackQueryHandler(confirm_leave_queue, pattern="^confirm_leave_queue_"))
     application.add_handler(CallbackQueryHandler(cancel_leave_queue, pattern="^cancel_leave_queue_"))
     application.add_handler(CallbackQueryHandler(confirm_skip, pattern="^confirm_skip_"))

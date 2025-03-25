@@ -222,3 +222,27 @@ def build_russian_timezone_menu():
     buttons = [InlineKeyboardButton(tz_name, callback_data=f"select_tz_{tz_code}") for tz_name, tz_code in RUSSIAN_TIMEZONES.items()]
     buttons.append(InlineKeyboardButton("📍 Определить по геолокации", callback_data="select_location_tz"))
     return InlineKeyboardMarkup(build_menu(buttons, n_cols=2))
+
+async def generate_invite_button_message(context, entity_type: str, entity_id: int, creator_id: int, entity_name: str, additional_info: str = "") -> tuple:
+    """Генерирует сообщение с информацией о сущности (очереди/группе) и кнопкой присоединиться.
+    Возвращает кортеж: (текст сообщения, reply_markup)"""
+    
+    if entity_type == "queue":
+        payload = JOIN_QUEUE_PAYLOAD
+        entity_type_name = "очереди"
+        reply_markup = await create_join_queue_button(context, entity_id, creator_id)
+    elif entity_type == "group":
+        payload = JOIN_GROUP_PAYLOAD
+        entity_type_name = "группы"
+        reply_markup = await create_join_group_button(context, entity_id, creator_id)
+    else:
+        raise ValueError("Неверный тип сущности")
+
+    message_text = (
+        f"🔗 *Приглашение в {entity_type_name}*:\n\n"
+        f"📌 Название: *{entity_name}*\n"
+        f"{additional_info}\n"
+        f"➡ Нажмите кнопку ниже, чтобы присоединиться!"
+    )
+    
+    return message_text, reply_markup

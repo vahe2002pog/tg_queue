@@ -292,7 +292,10 @@ async def group_info_button(update: Update, context: CallbackContext) -> None:
         buttons.append(InlineKeyboardButton("➕ Присоединиться", callback_data=f"{JOIN_GROUP_PAYLOAD}{group_id}"))
 
     if group['creator_id'] == user_id or user_id == ADMIN_ID:
-        buttons.append(InlineKeyboardButton("❌ Удалить группу", callback_data=f"delete_group_{group_id}"))
+        buttons.extend([
+            InlineKeyboardButton("❌ Удалить группу", callback_data=f"delete_group_{group_id}"),
+            InlineKeyboardButton("🔗 Пригласить", callback_data=f"invite_group_{group_id}")
+        ])
 
     buttons.append(InlineKeyboardButton("🔙 Назад", callback_data="show_groups"))
     

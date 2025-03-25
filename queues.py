@@ -590,7 +590,6 @@ async def queue_info_button(update: Update, context: CallbackContext) -> None:
 
     keyboard = []
     if is_user_in_queue(conn, queue_id, user_id):
-        # Добавляем первые две кнопки в первую строку
         keyboard.append([
             InlineKeyboardButton("⏭ Пропустить ход", callback_data=f"skip_{queue_id}"),
             InlineKeyboardButton("🚪 Выйти из очереди", callback_data=f"leave_queue_{queue_id}")
@@ -599,10 +598,11 @@ async def queue_info_button(update: Update, context: CallbackContext) -> None:
         keyboard.append([InlineKeyboardButton("➕ Присоединиться", callback_data=f"{JOIN_QUEUE_PAYLOAD}{queue_id}")])
 
     if queue['creator_id'] == user_id or user_id == ADMIN_ID:
-        # Добавляем кнопку удаления в отдельную строку
-        keyboard.append([InlineKeyboardButton("❌ Удалить очередь", callback_data=f"delete_queue_{queue_id}")])
+        keyboard.append([
+            InlineKeyboardButton("❌ Удалить очередь", callback_data=f"delete_queue_{queue_id}"),
+            InlineKeyboardButton("🔗 Пригласить", callback_data=f"invite_queue_{queue_id}")
+        ])
 
-    # Добавляем кнопку "Назад" в отдельную строку
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="show_queues")])
 
     reply_markup = InlineKeyboardMarkup(keyboard) 
@@ -752,3 +752,78 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
 
     )
     context.user_data["location_message_id"] = sent_message.message_id
+
+async def generate_queue_invite_button(update: Update, context: CallbackContext) -> None:
+    """Генерирует пригласительную кнопку для очереди."""
+    query = update.callback_query
+    await query.answer()
+    conn = context.bot_data['conn']
+    print(query.data.split("_")[2])
+    try:
+        queue_id = int(query.data.split("_")[2])
+    except (IndexError, ValueError):
+        await query.edit_message_text("❌ Ошибка: Неверный формат данных.")
+        return
+
+    queue = await get_queue_by_id(conn, queue_id)
+    if not queue:
+        await query.edit_message_text("❌ Ошибка: Очередь не найдена.")
+        return
+
+    user_id = update.effective_user.id
+    if queue['creator_id'] != user_id and user_id != ADMIN_ID:
+        await query.edit_message_text("❌ Только создатель очереди может генерировать приглашения.")
+        return
+
+    # Получаем информацию о времени начала в часовом поясе пользователя
+    user_timezone_str = get_user_timezone(conn, user_id)
+    start_time = convert_time_to_user_timezone(queue['start_time'], user_timezone_str)
+    time_info = f"📅 Дата: *{start_time.strftime('%d.%m.%y')}*\n⏰ Время: *{start_time.strftime('%H:%M')}*"
+
+    message_text, reply_markup = await generate_invite_button_message(
+        context, "queue", queue_id, queue['creator_id'], queue['queue_name'], time_info
+    )
+
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=message_text,
+        reply_markup=reply_markup,
+        link_preview_options=LinkPreviewOptions(is_disabled=True)
+    )
+
+async def generate_group_invite_button(update: Update, context: CallbackContext) -> None:
+    """Генерирует пригласительную кнопку для группы."""
+    query = update.callback_query
+    await query.answer()
+    conn = context.bot_data['conn']
+    try:
+        group_id = int(query.data.split("_")[2])
+    except (IndexError, ValueError):
+        await query.edit_message_text("❌ Ошибка: Неверный формат данных.")
+        return
+
+    group = get_group_by_id(conn, group_id)
+    if not group:
+        await query.edit_message_text("❌ Ошибка: Группа не найдена.")
+        return
+
+    user_id = update.effective_user.id
+    if group['creator_id'] != user_id and user_id != ADMIN_ID:
+        await query.edit_message_text("❌ Только создатель группы может генерировать приглашения.")
+        return
+
+    # Получаем список участников для дополнительной информации
+    users_list = get_group_users(conn, group_id)
+    members_count = len(users_list) if users_list else 0
+    members_info = f"👥 Участников: *{members_count}*"
+
+    message_text, reply_markup = await generate_invite_button_message(
+        context, "group", group_id, group['creator_id'], group['group_name'], members_info
+    )
+
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=message_text,
+        reply_markup=reply_markup,
+        link_preview_options=LinkPreviewOptions(is_disabled=True)
+    )
