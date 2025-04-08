@@ -24,6 +24,7 @@ def main():
     conn = create_connection()
     if conn:
         create_tables(conn)
+        migrate_database(conn)
 
     job_queue = JobQueue()
     builder = ApplicationBuilder().token(TOKEN)
@@ -56,6 +57,11 @@ def main():
             QUEUE_TIME: [
                 CommandHandler("cancel", cancel),
                 MessageHandler(filters.TEXT, create_queue_time)
+            ],
+            TIME_WITHOUT_LOCATION: [  # Новый шаг
+                CommandHandler("cancel", cancel),
+                CommandHandler("skip", set_time_without_location),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, set_time_without_location)
             ],
             CHOOSE_LOCATION: [
                 CommandHandler("cancel", cancel),

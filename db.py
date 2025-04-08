@@ -4,6 +4,49 @@ from datetime import datetime
 from config import DATABASE_NAME, ADMIN_ID
 import pytz
 
+TABLES_SCHEMA = {
+    'users': [
+        ('user_id', 'INTEGER', True, False),
+        ('name', 'TEXT', False, True),
+        ('state', 'TEXT', False, True),
+        ('time_zone', 'TEXT', False, True)
+    ],
+    'queues': [
+        ('queue_id', 'INTEGER', True, False),
+        ('queue_name', 'TEXT', False, False),
+        ('start_time', 'TEXT', False, True),
+        ('latitude', 'REAL', False, True),
+        ('longitude', 'REAL', False, True),
+        ('creator_id', 'INTEGER', False, True),
+        ('group_id', 'INTEGER', False, True),
+        ('time_without_location', 'TEXT', False, True)
+    ],
+    'queue_users': [
+        ('queue_id', 'INTEGER', False, False),
+        ('user_id', 'INTEGER', False, False),
+        ('join_time', 'TEXT', False, False)
+    ],
+    'groups': [
+        ('group_id', 'INTEGER', True, False),
+        ('group_name', 'TEXT', False, False),
+        ('creator_id', 'INTEGER', False, True)
+    ],
+    'group_users': [
+        ('group_id', 'INTEGER', False, False),
+        ('user_id', 'INTEGER', False, False)
+    ],
+    'broadcasts': [
+        ('id', 'INTEGER', True, False),
+        ('message_text', 'TEXT', False, True),
+        ('message_photo', 'TEXT', False, True),
+        ('message_document', 'TEXT', False, True),
+        ('recipients', 'TEXT', False, True),
+        ('send_time', 'TEXT', False, True),
+        ('creator_id', 'INTEGER', False, True),
+        ('is_deleted', 'BOOLEAN', False, False)
+    ]
+}
+
 logger = logging.getLogger(__name__)
 
 def create_connection():
@@ -17,71 +60,60 @@ def create_connection():
     return conn
 
 def create_tables(conn):
-    """Создает необходимые таблицы в базе данных."""
+    """Создает таблицы в базе данных на основе схемы TABLES_SCHEMA."""
     try:
         cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                name TEXT,
-                state TEXT,
-                time_zone TEXT
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS queues (
-                queue_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                queue_name TEXT NOT NULL,
-                start_time TEXT,
-                latitude REAL,
-                longitude REAL,
-                creator_id INTEGER,
-                group_id INTEGER
-            );
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS broadcasts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                message_text TEXT,
-                message_photo TEXT,
-                message_document TEXT,
-                recipients TEXT,
-                send_time TEXT,
-                creator_id INTEGER,
-                is_deleted BOOLEAN DEFAULT FALSE
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS queue_users (
-                queue_id INTEGER,
-                user_id INTEGER,
-                join_time TEXT,
-                FOREIGN KEY (queue_id) REFERENCES queues(queue_id),
-                FOREIGN KEY (user_id) REFERENCES users(user_id),
-                PRIMARY KEY (queue_id, user_id)
-            );
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS groups (
-                group_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                group_name TEXT NOT NULL,
-                creator_id INTEGER
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS group_users (
-                group_id INTEGER,
-                user_id INTEGER,
-                FOREIGN KEY (group_id) REFERENCES groups(group_id),
-                FOREIGN KEY (user_id) REFERENCES users(user_id),
-                PRIMARY KEY (group_id, user_id)
-            )
-        """)
+        
+        for table_name, columns in TABLES_SCHEMA.items():
+            # Формируем SQL для создания таблицы
+            columns_sql = []
+            primary_keys = []
+            
+            for column in columns:
+                name, type_, is_pk, is_nullable = column
+                column_sql = f"{name} {type_}"
+                if is_pk:
+                    if type_ == 'INTEGER':
+                        column_sql += " PRIMARY KEY AUTOINCREMENT"
+                    else:
+                        primary_keys.append(name)
+                if not is_nullable:
+                    column_sql += " NOT NULL"
+                
+                columns_sql.append(column_sql)
+            
+            if primary_keys:
+                columns_sql.append(f"PRIMARY KEY ({', '.join(primary_keys)})")
+            
+            # Создаем таблицу
+            create_sql = f"""
+                CREATE TABLE IF NOT EXISTS {table_name} (
+                    {', '.join(columns_sql)}
+                )
+            """
+            cursor.execute(create_sql)
+            
+            # Создаем индексы для внешних ключей
+            if table_name == 'queue_users':
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_queue_users_queue ON queue_users(queue_id)
+                """)
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_queue_users_user ON queue_users(user_id)
+                """)
+            elif table_name == 'group_users':
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_group_users_group ON group_users(group_id)
+                """)
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_group_users_user ON group_users(user_id)
+                """)
+        
         conn.commit()
         logger.info("Таблицы созданы успешно")
     except sqlite3.Error as e:
         logger.error(f"Ошибка при создании таблиц: {e}")
-
+        raise
 
 def insert_group(conn, group_name: str, creator_id: int) -> int | None:
     """Добавляет новую группу в базу данных."""
@@ -343,12 +375,24 @@ async def get_queue_by_id(conn, queue_id: int) -> dict | None:
     """Получает информацию об очереди по её ID."""
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT queue_name, start_time, latitude, longitude, creator_id FROM queues WHERE queue_id = ?", (queue_id,))
+        cursor.execute("""
+            SELECT queue_name, start_time, latitude, longitude, creator_id, time_without_location 
+            FROM queues WHERE queue_id = ?
+        """, (queue_id,))
         result = cursor.fetchone()
         if result:
             start_time_str = result[1]
             start_time = datetime.fromisoformat(start_time_str).replace(tzinfo=pytz.UTC) if start_time_str else None
-            return {"queue_name": result[0], "start_time": start_time, "latitude": result[2], "longitude": result[3], "creator_id": result[4]}
+            time_without_location_str = result[5]
+            time_without_location = datetime.fromisoformat(time_without_location_str).replace(tzinfo=pytz.UTC) if time_without_location_str else None
+            return {
+                "queue_name": result[0],
+                "start_time": start_time,
+                "latitude": result[2],
+                "longitude": result[3],
+                "creator_id": result[4],
+                "time_without_location": time_without_location
+            }
         return None
     except sqlite3.Error as e:
         logger.error(f"Ошибка при получении очереди из базы данных: {e}")
@@ -541,12 +585,22 @@ def mark_broadcast_as_deleted(conn, broadcast_id: int):
     except sqlite3.Error as e:
         logger.error(f"Ошибка при пометке рассылки как удаленной: {e}")
 
-def insert_queue(conn, queue_name: str, start_time: datetime, latitude: float, longitude: float, creator_id: int):
+def insert_queue(conn, queue_name: str, start_time: datetime, latitude: float, longitude: float, creator_id: int, time_without_location: datetime = None):
     """Вставляет данные о новой очереди в базу данных."""
     try:
         cursor = conn.cursor()
-        cursor.execute("INSERT OR IGNORE INTO queues (queue_name, start_time, latitude, longitude, creator_id) VALUES (?, ?, ?, ?, ?)",
-              (queue_name, start_time.astimezone(pytz.UTC).isoformat(), latitude, longitude, creator_id))
+        cursor.execute("""
+            INSERT OR IGNORE INTO queues 
+            (queue_name, start_time, latitude, longitude, creator_id, time_without_location) 
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            queue_name, 
+            start_time.astimezone(pytz.UTC).isoformat(), 
+            latitude, 
+            longitude, 
+            creator_id,
+            time_without_location.astimezone(pytz.UTC).isoformat() if time_without_location else None
+        ))
         conn.commit()
         logger.info(f"Очередь {queue_name} успешно сохранена в базе данных.")
     except sqlite3.Error as e:
@@ -570,3 +624,57 @@ def update_user_timezone(conn, user_id: int, timezone: str):
     cursor = conn.cursor()
     cursor.execute("UPDATE users SET time_zone = ? WHERE user_id = ?", (timezone, user_id))
     conn.commit()
+
+def update_queue_time_without_location(conn, queue_id: int, time_without_location: datetime):
+    """Обновляет время без проверки геолокации для очереди."""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE queues 
+            SET time_without_location = ? 
+            WHERE queue_id = ?
+        """, (
+            time_without_location.astimezone(pytz.UTC).isoformat() if time_without_location else None,
+            queue_id
+        ))
+        conn.commit()
+        logger.info(f"Время без проверки геолокации обновлено для очереди {queue_id}")
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка при обновлении времени без проверки геолокации: {e}")
+
+def migrate_database(conn):
+    """Проверяет и добавляет недостающие столбцы на основе схемы TABLES_SCHEMA."""
+    try:
+        cursor = conn.cursor()
+        
+        for table_name, columns in TABLES_SCHEMA.items():
+            # Проверяем существование таблицы
+            cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+            if not cursor.fetchone():
+                logger.warning(f"Таблица {table_name} не существует, будет создана при следующем запуске")
+                continue
+                
+            # Получаем текущие столбцы таблицы
+            cursor.execute(f"PRAGMA table_info({table_name})")
+            existing_columns = {column[1] for column in cursor.fetchall()}
+            
+            # Проверяем каждый ожидаемый столбец
+            for column in columns:
+                name, type_, is_pk, is_nullable = column
+                if name not in existing_columns:
+                    try:
+                        column_def = f"{name} {type_}"
+                        if not is_nullable:
+                            column_def += " NOT NULL"
+                        
+                        cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_def}")
+                        logger.info(f"Добавлен столбец {name} в таблицу {table_name}")
+                    except sqlite3.Error as e:
+                        logger.error(f"Ошибка при добавлении столбца {name} в {table_name}: {e}")
+        
+        conn.commit()
+        logger.info("Миграция базы данных завершена успешно")
+        
+    except sqlite3.Error as e:
+        logger.error(f"Критическая ошибка при миграции базы данных: {e}")
+        raise

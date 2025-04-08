@@ -79,10 +79,38 @@ async def create_queue_time(update: Update, context: CallbackContext) -> int:
 
         context.user_data['queue_time'] = update.message.text
 
-    reply_markup = build_location_menu()
+    # Добавляем вопрос о времени без локации
     await update.message.reply_text(
-        "🌍 *Выберите местоположение очереди:*",
-        reply_markup=reply_markup,
+        "⏳ Укажите время (в формате ЧЧ:ММ), после которого можно записаться без подтверждения геолокации:\n"
+        "➡ Если не требуется, введите /skip",
+    )
+    return TIME_WITHOUT_LOCATION
+
+async def set_time_without_location(update: Update, context: CallbackContext) -> int:
+    """Обработчик установки времени без проверки локации."""
+    user_input = update.message.text.strip()
+    
+    if user_input == "/skip":
+        context.user_data['time_without_location'] = None
+        await update.message.reply_text(
+            "✅ Проверка геолокации будет требоваться всегда.\n\n"
+            "🌍 Теперь выберите местоположение очереди:",
+            reply_markup=build_location_menu(),
+        )
+        return CHOOSE_LOCATION
+    
+    if not validate_time(user_input):
+        await update.message.reply_text(
+            "⚠️ *Ошибка:* Неверный формат времени.\n\n"
+            "⏰ Пожалуйста, используйте _ЧЧ:ММ_ или введите /skip, чтобы пропустить.",
+        )
+        return TIME_WITHOUT_LOCATION
+    
+    context.user_data['time_without_location'] = user_input
+    await update.message.reply_text(
+        f"✅ После {user_input} проверка геолокации не потребуется.\n\n"
+        "🌍 Теперь выберите местоположение очереди:",
+        reply_markup=build_location_menu(),
     )
     return CHOOSE_LOCATION
 
@@ -151,6 +179,7 @@ async def create_queue_final(update: Update, context: CallbackContext) -> int:
     latitude = context.user_data['latitude']
     longitude = context.user_data['longitude']
     group_id = context.user_data.get('group_id')
+    time_without_location = context.user_data.get('time_without_location')
     conn = context.bot_data['conn']
     user_timezone_str = get_user_timezone(conn = context.bot_data['conn'], user_id = update.effective_user.id)
 
@@ -160,6 +189,19 @@ async def create_queue_final(update: Update, context: CallbackContext) -> int:
         start_time = datetime.strptime(f"{date_str} {time_str}", "%d.%m.%y %H:%M")
         start_time_localized = user_timezone.localize(start_time)
         start_time_utc = start_time_localized.astimezone(pytz.UTC)
+        
+        # Конвертируем время без локации (если указано)
+        if time_without_location:
+            time_without_location_dt = datetime.strptime(time_without_location, "%H:%M")
+            time_without_location_dt = time_without_location_dt.replace(
+                year=start_time.year,
+                month=start_time.month,
+                day=start_time.day
+            )
+            time_without_location_localized = user_timezone.localize(time_without_location_dt)
+            time_without_location_utc = time_without_location_localized.astimezone(pytz.UTC)
+        else:
+            time_without_location_utc = None
     except ValueError:
         await update.effective_message.reply_text(
             "❌ *Ошибка:* Неверный формат даты или времени. Пожалуйста, проверьте ввод.",
@@ -169,9 +211,10 @@ async def create_queue_final(update: Update, context: CallbackContext) -> int:
     # Вставляем очередь в БД (с group_id или NULL)
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO queues (queue_name, start_time, latitude, longitude, creator_id, group_id)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (name, start_time_utc.isoformat(), latitude, longitude, update.effective_user.id, group_id))
+        INSERT INTO queues (queue_name, start_time, latitude, longitude, creator_id, group_id, time_without_location)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (name, start_time_utc.isoformat(), latitude, longitude, update.effective_user.id, group_id, 
+          time_without_location_utc.isoformat() if time_without_location_utc else None))
     conn.commit()
     queue_id = cursor.lastrowid
 
@@ -236,39 +279,54 @@ async def send_group_notification(update: Update, context: CallbackContext) -> N
 
     reply_markup = await create_join_queue_button(context, queue_id, queue_creator_id)
 
-    # Получаем start_time из БД (оно в UTC)
+    # Получаем данные очереди из БД
     queue = await get_queue_by_id(conn, queue_id)
     if not queue:
         logger.error(f"Очередь с id {queue_id} не найдена при отправке уведомлений.")
         return
 
     start_time = queue['start_time']
+    time_without_location = queue.get('time_without_location')
 
     for user_id in users:
         if user_id != queue_creator_id:
             try:
-                # 1. Получаем часовой пояс ПОЛУЧАТЕЛЯ
+                # Получаем часовой пояс получателя
                 user_timezone_str = get_user_timezone(conn, user_id)
+                user_timezone = pytz.timezone(user_timezone_str)
 
-                # 2. Конвертируем start_time в часовой пояс ПОЛУЧАТЕЛЯ
-                start_time_user = convert_time_to_user_timezone(start_time, user_timezone_str)
+                # Конвертируем времена в часовой пояс получателя
+                start_time_user = start_time.astimezone(user_timezone)
+                
+                # Формируем текст сообщения
+                message_text = (
+                    f"✅ Создана новая очередь *{queue_name}*! 🕒\n"
+                    f"📆 Дата: *{start_time_user.strftime('%d.%m.%y')}*\n"
+                    f"⏰ Время: *{start_time_user.strftime('%H:%M')}*\n"
+                )
 
-                # 3. Отправляем локацию
+                # Добавляем информацию о времени без локации, если оно указано
+                if time_without_location:
+                    time_without_location_user = time_without_location.astimezone(user_timezone)
+                    message_text += (
+                        f"🕓 Без локации после: *{time_without_location_user.strftime('%H:%M')}*\n\n"
+                    )
+                else:
+                    message_text += "\n"
+
+                message_text += (
+                    f"📍 *Локация:* (смотрите выше)\n\n"
+                    f"➡ *Нажмите кнопку, чтобы присоединиться!*"
+                )
+
+                # Отправляем локацию
                 await context.bot.send_location(
                     chat_id=user_id,
                     latitude=latitude,
                     longitude=longitude
                 )
 
-                # 4. Формируем сообщение с временем в часовом поясе ПОЛУЧАТЕЛЯ
-                message_text = (
-                    f"✅ Создана новая очередь *{queue_name}*! 🕒\n"
-                    f"📆 Дата: *{start_time_user.strftime('%d.%m.%y')}*\n"
-                    f"⏰ Время: *{start_time_user.strftime('%H:%M')}*\n\n"
-                    f"📍 *Локация:* (смотрите выше)\n\n"
-                    f"➡ *Нажмите кнопку, чтобы присоединиться!*")
-
-                # 5. Отправляем текстовое сообщение с кнопкой
+                # Отправляем текстовое сообщение с кнопкой
                 await context.bot.send_message(
                     chat_id=user_id,
                     text=message_text,
@@ -345,10 +403,26 @@ async def handle_deeplink(update: Update, context: CallbackContext) -> None:
                 return
 
             if not get_user_data(conn, user_id):
-                await update.message.reply_text(
-                    "✍ Для начала введите ваше *имя* с помощью команды /start.")
+                await update.message.reply_text("✍ Для начала введите ваше *имя* с помощью команды /start.")
                 return
 
+            # Проверяем время без локации
+            user_timezone_str = get_user_timezone(conn, user_id)
+            user_timezone = pytz.timezone(user_timezone_str)
+            current_time = datetime.now(user_timezone)
+            
+            if queue.get('time_without_location'):
+                time_without_location = queue['time_without_location'].astimezone(user_timezone)
+                if current_time.time() >= time_without_location.time():
+                    # Записываем без проверки локации
+                    join_time = current_time.isoformat()
+                    add_user_to_queue(conn, queue_id, user_id, join_time)
+                    await update.message.reply_text(
+                        f"✅ Вы записаны в очередь {queue['queue_name']}"
+                    )
+                    return
+
+            # Если проверка локации требуется
             context.user_data['queue_id'] = queue_id
             context.user_data['user_id'] = user_id
             await ask_location(update, context)
@@ -689,8 +763,7 @@ async def get_web_app_loc(update: Update, context: CallbackContext) -> None:
 async def ask_location(update: Update, context: CallbackContext) -> None:
     """Запрашивает геолокацию пользователя."""
     conn = context.bot_data['conn']
-
-    # Определение источника запроса (CallbackQuery или Message)
+    
     if update.callback_query:
         query = update.callback_query
         await query.answer()
@@ -701,7 +774,6 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
             return
         queue_id = int(data_parts[2])
         user_id = update.effective_user.id
-
     elif update.message:
         message = update.message
         queue_id = context.user_data.get("queue_id")
@@ -712,15 +784,7 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
     else:
         return
 
-    context.user_data['queue_id'] = queue_id
-    context.user_data['user_id'] = user_id
-
-    # Предварительный показ списка участников (для обоих случаев)
-    user_timezone_str = get_user_timezone(conn, user_id)
-    info_message = await generate_queue_info_message(conn, queue_id, user_timezone_str)
-    await message.reply_text(info_message)
-
-
+    # Проверяем, не записан ли уже пользователь
     if is_user_in_queue(conn, queue_id, user_id):
         await message.reply_text("✅ Вы уже записаны в эту очередь.")
         return
@@ -741,15 +805,10 @@ async def ask_location(update: Update, context: CallbackContext) -> None:
     context.user_data["expecting_location_for"] = queue_id
     reply_markup = build_web_app_location_button(rec_source="get_location")
 
-    queue_name = queue['queue_name'] if update.callback_query else get_queue_name_by_id(conn, queue_id)
-    if not queue_name:
-        await message.reply_text("❌ Ошибка: Не удалось получить имя")
-        return
-
+    queue_name = queue['queue_name']
     sent_message = await message.reply_text(
         f"📌 Для записи в '{queue_name}', нажмите *кнопку* и отправьте геолокацию 📍:",
         reply_markup=reply_markup,
-
     )
     context.user_data["location_message_id"] = sent_message.message_id
 

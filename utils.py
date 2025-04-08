@@ -92,15 +92,36 @@ async def create_join_group_button(context, group_id, creator_id):
 
 async def send_queue_created_message(update, context, queue_name, start_time, reply_markup):
     """Отправляет сообщение об успешном создании очереди."""
+    conn = context.bot_data['conn']
+    queue_id = context.user_data.get('queue_id')
+    
+    # Получаем данные очереди
+    queue = await get_queue_by_id(conn, queue_id)
+    time_without_location = queue.get('time_without_location') if queue else None
+    
     # Получаем часовой пояс пользователя
-    user_timezone_str = get_user_timezone(conn = context.bot_data['conn'], user_id = update.effective_user.id)
-
-    # Формируем сообщение с локальным временем пользователя
-    message = await update.effective_message.reply_text(
+    user_timezone_str = get_user_timezone(conn, update.effective_user.id)
+    user_timezone = pytz.timezone(user_timezone_str)
+    
+    # Формируем основное сообщение
+    message_text = (
         f"✅ Очередь *{queue_name}* успешно создана! 🕒\n"
         f"📆 Дата: *{start_time.strftime('%d.%m.%y')}*\n"
-        f"⏰ Время: *{start_time.strftime('%H:%M')}*\n\n"
-        f"➡ *Нажмите кнопку, чтобы присоединиться!*",
+        f"⏰ Время: *{start_time.strftime('%H:%M')}*\n"
+    )
+    
+    # Добавляем информацию о времени без локации, если оно указано
+    if time_without_location:
+        time_without_location_user = time_without_location.astimezone(user_timezone)
+        message_text += f"🕓 Без локации после: *{time_without_location_user.strftime('%H:%M')}*\n\n"
+    else:
+        message_text += "\n"
+    
+    message_text += "➡ *Нажмите кнопку, чтобы присоединиться!*"
+
+    # Отправляем сообщение
+    message = await update.effective_message.reply_text(
+        message_text,
         reply_markup=reply_markup,
         link_preview_options=LinkPreviewOptions(is_disabled=True)
     )

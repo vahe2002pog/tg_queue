@@ -2,10 +2,10 @@ import pytz
 JOIN_QUEUE_PAYLOAD = "join_queue_"
 JOIN_GROUP_PAYLOAD = "join_group_"
 GMT_PLUS_5 = pytz.timezone("Etc/GMT-5")
-MAX_DISTANCE = 250
+MAX_DISTANCE = 150
 
 # States для ConversationHandler (create_queue)
-QUEUE_NAME, QUEUE_DATE, QUEUE_TIME, CHOOSE_LOCATION, CHOOSE_GROUP, SEND_NOTIFICATION = range(6)
+QUEUE_NAME, QUEUE_DATE, QUEUE_TIME, CHOOSE_LOCATION, CHOOSE_GROUP, SEND_NOTIFICATION, TIME_WITHOUT_LOCATION = range(7)
 # States для ConversationHandler (change_name)
 CHANGE_NAME = 0
 # States для ConversationHandler (broadcast)
