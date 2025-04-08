@@ -370,62 +370,68 @@ async def finish_queue_creation(update:Update, context:CallbackContext):
 
 
 async def handle_deeplink(update: Update, context: CallbackContext) -> None:
-    """Обрабатывает deeplink."""
-    conn = context.bot_data['conn']
-    if update.message:
-        message_text = update.message.text
-        logger.info(f"Получено сообщение: {message_text}")
+    """Обрабатывает deeplink-приглашения в очередь."""
+    if not update.message:
+        return
 
-        if not message_text.startswith("/start") or len(message_text.split()) <= 1:
-            await start(update, context)
-            return
+    message_text = update.message.text
+    logger.info(f"Получено deeplink: {message_text}")
 
-        payload = message_text.split()[1]
-        if payload.startswith(JOIN_QUEUE_PAYLOAD):
-            try:
-                encrypted_id = payload[11:]
-                queue_id, creator_id = decrypt_data(encrypted_id)
-                if not queue_id or not creator_id:
-                    await update.message.reply_text("❌ Неверный формат ID очереди.")
-                    return
-            except ValueError:
-                await update.message.reply_text("❌ Неверный формат ID очереди.")
-                return
+    # Проверяем формат команды /start с payload
+    if not message_text.startswith("/start") or len(message_text.split()) <= 1:
+        await start(update, context)
+        return
 
-            user_id = update.effective_user.id
-            queue = await get_queue_by_id(conn, queue_id)
-            if not queue:
-                await update.message.reply_text("❌ Очередь не найдена.")
-                return
+    payload = message_text.split()[1]
+    if not payload.startswith(JOIN_QUEUE_PAYLOAD):
+        return
 
-            if queue['creator_id'] != creator_id:
-                await update.message.reply_text("❌ Ошибка: Неверный создатель очереди.")
-                return
-
-            if not get_user_data(conn, user_id):
-                await update.message.reply_text("✍ Для начала введите ваше *имя* с помощью команды /start.")
-                return
-
-            # Проверяем время без локации
-            user_timezone_str = get_user_timezone(conn, user_id)
-            user_timezone = pytz.timezone(user_timezone_str)
-            current_time = datetime.now(user_timezone)
+    try:
+        # Декодируем параметры очереди
+        encrypted_id = payload[len(JOIN_QUEUE_PAYLOAD):]
+        queue_id, creator_id = decrypt_data(encrypted_id)
+        
+        if not queue_id or not creator_id:
+            raise ValueError("Invalid queue data")
             
-            if queue.get('time_without_location'):
-                time_without_location = queue['time_without_location'].astimezone(user_timezone)
-                if current_time.time() >= time_without_location.time():
-                    # Записываем без проверки локации
-                    join_time = current_time.isoformat()
-                    add_user_to_queue(conn, queue_id, user_id, join_time)
-                    await update.message.reply_text(
-                        f"✅ Вы записаны в очередь {queue['queue_name']}"
-                    )
-                    return
+    except ValueError:
+        await update.message.reply_text("❌ Неверный формат приглашения.")
+        return
 
-            # Если проверка локации требуется
-            context.user_data['queue_id'] = queue_id
-            context.user_data['user_id'] = user_id
-            await ask_location(update, context)
+    # Проверяем существование очереди и создателя
+    conn = context.bot_data['conn']
+    queue = await get_queue_by_id(conn, queue_id)
+    if not queue or queue['creator_id'] != creator_id:
+        await update.message.reply_text("❌ Очередь не найдена или приглашение недействительно.")
+        return
+
+    # Проверяем регистрацию пользователя
+    user_id = update.effective_user.id
+    if not get_user_data(conn, user_id):
+        await update.message.reply_text("✍ Для начала введите ваше *имя* с помощью команды /start.")
+        return
+
+    # Создаем искусственный callback_query для обработки
+    class FakeCallbackQuery:
+        def __init__(self, message):
+            self.data = f"join_queue_{queue_id}"
+            self.message = message
+            self.from_user = update.effective_user
+            
+        async def answer(self):
+            """Заглушка для answer()"""
+            pass
+            
+        async def edit_message_text(self, *args, **kwargs):
+            """Перенаправляем в reply_text"""
+            return await self.message.reply_text(*args, **kwargs)
+
+    # Создаем fake update с нашим callback_query
+    fake_query = FakeCallbackQuery(update.message)
+    fake_update = Update(update.update_id, callback_query=fake_query)
+    
+    # Обрабатываем как обычный callback
+    await handle_join_queue(fake_update, context)
 
 async def delete_queue_job(context: CallbackContext) -> None:
     """Автоматически удаляет очередь."""
@@ -761,56 +767,28 @@ async def get_web_app_loc(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text("❌ Произошла ошибка.", reply_markup=ReplyKeyboardRemove())
 
 async def ask_location(update: Update, context: CallbackContext) -> None:
-    """Запрашивает геолокацию пользователя."""
+    """Обрабатывает данные геолокации из WebApp."""
     conn = context.bot_data['conn']
+    user_id = context.user_data.get("user_id")
+    queue_id = context.user_data.get("queue_id")
     
-    if update.callback_query:
-        query = update.callback_query
-        await query.answer()
-        message = query.message
-        data_parts = query.data.split("_")
-        if len(data_parts) < 3 or not data_parts[2].isdigit():
-            await message.reply_text("❌ Ошибка: Неверный формат данных.")
+    if not user_id or not queue_id:
+        await update.message.reply_text("❌ Ошибка: Не найден ID очереди или пользователя.")
+        return
+
+    try:
+        data = json.loads(update.message.web_app_data.data)
+        lat = data.get("lat")
+        lon = data.get("lon")
+
+        if not lat or not lon:
+            await update.message.reply_text("❌ Ошибка: не удалось получить координаты.", reply_markup=ReplyKeyboardRemove())
             return
-        queue_id = int(data_parts[2])
-        user_id = update.effective_user.id
-    elif update.message:
-        message = update.message
-        queue_id = context.user_data.get("queue_id")
-        user_id = message.from_user.id
-        if not queue_id:
-            await message.reply_text("❌ Ошибка: Не найден ID очереди.")
-            return
-    else:
-        return
 
-    # Проверяем, не записан ли уже пользователь
-    if is_user_in_queue(conn, queue_id, user_id):
-        await message.reply_text("✅ Вы уже записаны в эту очередь.")
-        return
-
-    queue = await get_queue_by_id(conn, queue_id)
-    if not queue:
-        await message.reply_text("❌ Ошибка: очередь не найдена.")
-        return
-
-    user_timezone_str = get_user_timezone(conn, user_id)
-    user_timezone = pytz.timezone(user_timezone_str)
-    queue_start_time = queue["start_time"].astimezone(user_timezone)
-
-    if queue_start_time > datetime.now(user_timezone):
-        await message.reply_text(f"⚠️ Запись начнется *{queue_start_time.strftime('%d.%m.%Y %H:%M')}* ⏰")
-        return
-
-    context.user_data["expecting_location_for"] = queue_id
-    reply_markup = build_web_app_location_button(rec_source="get_location")
-
-    queue_name = queue['queue_name']
-    sent_message = await message.reply_text(
-        f"📌 Для записи в '{queue_name}', нажмите *кнопку* и отправьте геолокацию 📍:",
-        reply_markup=reply_markup,
-    )
-    context.user_data["location_message_id"] = sent_message.message_id
+        await check_distance_and_join(update, context, queue_id, user_id, lat, lon)
+    except Exception as e:
+        logger.error(f"Ошибка в обработке Web App данных: {e}")
+        await update.message.reply_text("❌ Произошла ошибка.", reply_markup=ReplyKeyboardRemove())
 
 async def generate_queue_invite_button(update: Update, context: CallbackContext) -> None:
     """Генерирует пригласительную кнопку для очереди."""
@@ -886,3 +864,61 @@ async def generate_group_invite_button(update: Update, context: CallbackContext)
         reply_markup=reply_markup,
         link_preview_options=LinkPreviewOptions(is_disabled=True)
     )
+
+async def handle_join_queue(update: Update, context: CallbackContext) -> None:
+    """Централизованный обработчик присоединения к очереди."""
+    query = update.callback_query
+    await query.answer()
+    conn = context.bot_data['conn']
+    
+    # Получаем queue_id из callback_data
+    try:
+        queue_id = int(query.data.split("_")[2])
+    except (IndexError, ValueError):
+        await query.edit_message_text("❌ Ошибка: Неверный формат данных.")
+        return
+
+    user_id = update.effective_user.id
+    queue = await get_queue_by_id(conn, queue_id)
+    if not queue:
+        await query.edit_message_text("❌ Ошибка: Очередь не найдена.")
+        return
+
+    # Проверяем, не записан ли уже пользователь
+    if is_user_in_queue(conn, queue_id, user_id):
+        await query.edit_message_text("✅ Вы уже записаны в эту очередь.")
+        return
+
+    # Проверяем время начала очереди
+    user_timezone_str = get_user_timezone(conn, user_id)
+    user_timezone = pytz.timezone(user_timezone_str)
+    queue_start_time = queue["start_time"].astimezone(user_timezone)
+    
+    if datetime.now(user_timezone) < queue_start_time:
+        await query.edit_message_text(f"⚠️ Запись начнется *{queue_start_time.strftime('%d.%m.%Y %H:%M')}* ⏰")
+        return
+
+    # Проверяем время без локации
+    time_without_location = queue.get('time_without_location')
+    if time_without_location:
+        time_without_location = time_without_location.astimezone(user_timezone)
+        if datetime.now(user_timezone).time() >= time_without_location.time():
+            # Записываем без проверки локации
+            join_time = datetime.now(user_timezone).isoformat()
+            add_user_to_queue(conn, queue_id, user_id, join_time)
+            await query.edit_message_text(
+                f"✅ Вы записаны в очередь {queue['queue_name']}"
+            )
+            return
+
+    # Если требуется проверка локации
+    context.user_data['queue_id'] = queue_id
+    context.user_data['user_id'] = user_id
+    
+    # Запрашиваем локацию
+    reply_markup = build_web_app_location_button(rec_source="get_location")
+    sent_message = await query.message.reply_text(
+        f"📌 Для записи в '{queue['queue_name']}', отправьте геолокацию 📍:",
+        reply_markup=reply_markup,
+    )
+    context.user_data["location_message_id"] = sent_message.message_id

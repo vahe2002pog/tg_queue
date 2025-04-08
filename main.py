@@ -172,7 +172,7 @@ def main():
     application.add_handler(CallbackQueryHandler(leave_group_button, pattern="^leave_group_"))
     application.add_handler(CallbackQueryHandler(delete_group_button, pattern="^delete_group_"))
     application.add_handler(CallbackQueryHandler(cancel_broadcast_button, pattern="^cancel_broadcast_"))
-    application.add_handler(CallbackQueryHandler(ask_location, pattern="^join_queue_"))
+    application.add_handler(CallbackQueryHandler(handle_join_queue, pattern="^join_queue_"))
     application.add_handler(CallbackQueryHandler(join_group, pattern="^join_group_"))
     application.add_handler(CallbackQueryHandler(back_to_main_menu, pattern="^back_to_main_menu$"))
 
